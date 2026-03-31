@@ -277,8 +277,8 @@ tasks.register('makeDistrib') {
 
     // Misc files at the distrib root.
     copy {
-      from 'LICENSE.txt'
-      from fileTree(dir: 'third_party/jogamp', include: ['*.LICENSE.txt'])
+      from 'LICENSE_JCEF'
+      from fileTree(dir: 'third_party/jogamp', include: ['*.LICENSE_JCEF'])
       into binaryDistribDir
     }
   }
