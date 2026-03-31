@@ -11,12 +11,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefDisplayHandlerAdapter;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 // Test the DisplayHandler implementation.
-@ExtendWith(TestSetupExtension.class)
+@ExtendWith(tests.junittests.TestSetupExtension.class)
 class DisplayHandlerTest {
+    @BeforeAll
+    static void checkEnvironment() {
+        Assumptions.assumeTrue(tests.junittests.TestSetupExtension.isCefAvailable(), "CEF native not available");
+    }
     private final String testUrl_ = "http://test.com/test.html";
     private final String testContent_ =
             "<html><head><title>Test Title</title></head><body>Test!</body></html>";
@@ -25,7 +31,7 @@ class DisplayHandlerTest {
 
     @Test
     void onTitleChange() {
-        TestFrame frame = new TestFrame() {
+        tests.junittests.TestFrame frame = new tests.junittests.TestFrame() {
             @Override
             protected void setupTest() {
                 client_.addDisplayHandler(new CefDisplayHandlerAdapter() {
@@ -53,7 +59,7 @@ class DisplayHandlerTest {
 
     @Test
     void onAddressChange() {
-        TestFrame frame = new TestFrame() {
+        tests.junittests.TestFrame frame = new tests.junittests.TestFrame() {
             @Override
             protected void setupTest() {
                 client_.addDisplayHandler(new CefDisplayHandlerAdapter() {

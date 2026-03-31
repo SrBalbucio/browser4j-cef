@@ -119,9 +119,10 @@ dependencies {
   testImplementation 'org.mockito:mockito-core:5.23.0'
   compileOnly 'org.mockito:mockito-core:5.23.0'
 
-  jcefTestsCompileOnly fileTree(dir: 'third_party/jogamp/jar', include: ['*.jar'])
-  jcefTestsCompileOnly fileTree(dir: 'third_party/junit', include: ['junit*.jar'])
-  jcefTestsCompileOnly sourceSets.main.output
+  jcefTestsImplementation fileTree(dir: 'third_party/jogamp/jar', include: ['*.jar'])
+  jcefTestsImplementation fileTree(dir: 'third_party/junit', include: ['junit*.jar'])
+  jcefTestsImplementation sourceSets.main.output
+  jcefTestsRuntimeOnly fileTree(dir: 'third_party/junit', include: ['junit*.jar'])
 
 }
 
@@ -199,8 +200,8 @@ publishing {
         }
         developers {
           developer {
-            id.set('balbucio')
-            name.set('Silvan Balbucio')
+            id.set('srbalbucio')
+            name.set('João Gabriel')
           }
         }
         scm {

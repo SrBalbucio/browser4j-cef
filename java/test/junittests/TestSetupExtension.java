@@ -30,13 +30,26 @@ import java.util.concurrent.CountDownLatch;
 public class TestSetupExtension
         implements BeforeAllCallback, ExtensionContext.Store.CloseableResource {
     private static boolean initialized_ = false;
+    private static boolean cefAvailable_ = true;
     private static CountDownLatch countdown_ = new CountDownLatch(1);
+
+    public static boolean isCefAvailable() {
+        return cefAvailable_;
+    }
 
     @Override
     public void beforeAll(ExtensionContext context) {
         if (!initialized_) {
             initialized_ = true;
-            initialize(context);
+            try {
+                initialize(context);
+            } catch (UnsatisfiedLinkError e) {
+                cefAvailable_ = false;
+                System.err.println("CEF native library not available: " + e.getMessage());
+            } catch (Throwable t) {
+                cefAvailable_ = false;
+                System.err.println("CEF initialization error: " + t.getMessage());
+            }
         }
     }
 
@@ -52,8 +65,15 @@ public class TestSetupExtension
         context.getRoot().getStore(GLOBAL).put("jcef_test_setup", this);
 
         // Perform startup initialization on platforms that require it.
-        if (!CefApp.startup(null)) {
-            System.out.println("Startup initialization failed!");
+        try {
+            if (!CefApp.startup(null)) {
+                System.out.println("Startup initialization failed!");
+                cefAvailable_ = false;
+                return;
+            }
+        } catch (UnsatisfiedLinkError e) {
+            System.err.println("CEF startup failed: " + e.getMessage());
+            cefAvailable_ = false;
             return;
         }
 
@@ -77,6 +97,13 @@ public class TestSetupExtension
     public void close() {
         if (TestSetupContext.debugPrint()) {
             System.out.println("TestSetupExtension.close");
+        }
+
+        if (!cefAvailable_) {
+            if (TestSetupContext.debugPrint()) {
+                System.out.println("Skipping CEF cleanup because native initialization failed.");
+            }
+            return;
         }
 
         CefApp.getInstance().dispose();

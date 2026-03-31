@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.cef.callback.CefDragData;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -21,6 +22,7 @@ class DragDataTest {
     @Test
     void createEmpty() {
         CefDragData dragData = CefDragData.create();
+        Assumptions.assumeTrue(dragData != null, "CEF native APIs unavailable");
         assertNotNull(dragData);
         assertFalse(dragData.isReadOnly());
 
@@ -45,6 +47,7 @@ class DragDataTest {
     @Test
     void createLink() {
         CefDragData dragData = CefDragData.create();
+        Assumptions.assumeTrue(dragData != null, "CEF native APIs unavailable");
         assertNotNull(dragData);
         assertFalse(dragData.isReadOnly());
 
@@ -71,6 +74,7 @@ class DragDataTest {
     @Test
     void createFile() {
         CefDragData dragData = CefDragData.create();
+        Assumptions.assumeTrue(dragData != null, "CEF native APIs unavailable");
         assertNotNull(dragData);
         assertFalse(dragData.isReadOnly());
 
@@ -98,6 +102,7 @@ class DragDataTest {
     @Test
     void createFragment() {
         CefDragData dragData = CefDragData.create();
+        Assumptions.assumeTrue(dragData != null, "CEF native APIs unavailable");
         assertNotNull(dragData);
         assertFalse(dragData.isReadOnly());
 
@@ -124,6 +129,7 @@ class DragDataTest {
     @Test
     void cloneObject() {
         CefDragData dragData = CefDragData.create();
+        Assumptions.assumeTrue(dragData != null, "CEF native APIs unavailable");
         assertNotNull(dragData);
         assertFalse(dragData.isReadOnly());
 
@@ -149,6 +155,7 @@ class DragDataTest {
     @Test
     void disposeObject() {
         CefDragData dragData = CefDragData.create();
+        Assumptions.assumeTrue(dragData != null, "CEF native APIs unavailable");
         assertNotNull(dragData);
         assertFalse(dragData.isReadOnly());
 

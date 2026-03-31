@@ -9,12 +9,18 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.cef.browser.CefBrowser;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 // Test the TestFrame implementation.
 @ExtendWith(TestSetupExtension.class)
 class TestFrameTest {
+    @BeforeAll
+    static void checkEnvironment() {
+        Assumptions.assumeTrue(TestSetupExtension.isCefAvailable(), "CEF native not available");
+    }
     private boolean gotSetupTest_ = false;
     private boolean gotCleanupTest_ = false;
     private boolean gotLoadingStateChange_ = false;
