@@ -101,6 +101,27 @@ Build (Release):
 ./gradlew nativeRelease
 ```
 
+### JARs por plataforma (menos peso, nativos específicos)
+
+Agora o projeto gera JARs específicos por `platform`:
+
+- `browser4j-cef-1.0.0-win64.jar` (Windows x64)
+- `browser4j-cef-1.0.0-linux64.jar` (Linux x64)
+
+#### Linux x64
+
+```bash
+./gradlew shadowJar -Pplatform=linux64 --no-daemon
+```
+
+#### Windows x64
+
+```bash
+./gradlew shadowJar -Pplatform=win64 --no-daemon
+```
+
+> O `archiveClassifier` é `platform`, então o nome do JAR fica algo como `browser4j-cef-1.0.0-linux64.jar`.
+
 ### Publicar no Maven (hyperpowered)
 
 Este projeto já está configurado em `build.gradle` para publicar via `maven-publish`.
@@ -108,24 +129,76 @@ Este projeto já está configurado em `build.gradle` para publicar via `maven-pu
 - releases: `https://maven.dev.hyperpowered.net/releases`
 - snapshots: `https://maven.dev.hyperpowered.net/snapshots`
 
-Defina as variáveis de ambiente antes de chamar o publish:
+Defina as variáveis de ambiente antes de publicar:
 
 ```bash
 export HYPER_MAVEN_USERNAME="seu_usuario"
 export HYPER_MAVEN_PASSWORD="sua_senha"
 ```
 
-Para publicar a versão atual:
-
-```bash
-./gradlew publish --no-daemon
-```
-
-Para publicar apenas `mavenJava` (relacionado):
+#### Publicar artefato base (sem classifier)
 
 ```bash
 ./gradlew publishMavenJavaPublicationToHyperpoweredMavenRepository --no-daemon
 ```
+
+#### Publicar artefato Linux x64 (classifier `linux64`)
+
+```bash
+./gradlew publishMavenJavaLinux64PublicationToHyperpoweredMavenRepository --no-daemon
+```
+
+#### Publicar artefato Windows x64 (classifier `win64`)
+
+```bash
+./gradlew publishMavenJavaWin64PublicationToHyperpoweredMavenRepository --no-daemon
+```
+
+#### Publicar todos de uma vez (base + linux64 + win64)
+
+```bash
+./gradlew publishAllPlatforms --no-daemon
+```
+
+> Nota: os três artefatos compartilham a mesma versão (`1.0.0-SNAPSHOT`) e se diferenciam por classifier (`linux64`, `win64` e sem classifier).
+
+#### Consumir artefato por plataforma
+
+Maven (Linux x64):
+
+```xml
+<dependency>
+  <groupId>balbucio.browser4j</groupId>
+  <artifactId>browser4j-cef</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <classifier>linux64</classifier>
+</dependency>
+```
+
+Maven (Windows x64):
+
+```xml
+<dependency>
+  <groupId>balbucio.browser4j</groupId>
+  <artifactId>browser4j-cef</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <classifier>win64</classifier>
+</dependency>
+```
+
+Gradle:
+
+```groovy
+dependencies {
+  implementation('balbucio.browser4j:browser4j-cef:1.0.0-SNAPSHOT:linux64')
+  // ou
+  implementation('balbucio.browser4j:browser4j-cef:1.0.0-SNAPSHOT:win64')
+}
+```
+
+Observações:
+- O `platform` é a mesma variável usada pelo `shadowJar`.
+- O `publishAllPlatforms` já inclui o build dos JARs de plataforma antes da publicação.
 
 #### Se o `cmakeConfigure` falhar por falta de `gsutil`
 

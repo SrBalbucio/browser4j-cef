@@ -6,8 +6,8 @@ plugins {
   id 'com.gradleup.shadow' version '9.4.1'
 }
 
-group = 'org.browser4j'
-version = '1.0.0-SNAPSHOT'
+group = 'balbucio.browser4j'
+version = '1.0.0'
 
 java {
   // Ant/scripts historically compiled as Java 8 bytecode.
@@ -140,24 +140,31 @@ def nativeBundleDirs = [
 
 tasks.named('shadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar).configure {
   // Keep the original `jar` for consumers that don't want embedded natives/deps.
-  archiveClassifier = 'all'
+  archiveBaseName.set('browser4j-cef')
+  archiveClassifier.set(platform)
+  archiveVersion.set(project.version.toString())
 
   // Ensure module name is preserved for the shaded artifact too.
   manifest {
     from('java/resources/manifest/MANIFEST.MF')
   }
 
-  // Embed native bundles under a stable resource prefix.
-  from(nativeBundleDirs.win64) { into('natives/win/x64') }
-  from(nativeBundleDirs.linux64) { into('natives/linux/x64') }
+  // Choose native bundle only for current platform.
+  def platformNativeDir = nativeBundleDirs[platform]
+  if (platformNativeDir == null) {
+    throw new GradleException("Unsupported shadow JAR platform: ${platform}")
+  }
 
-  // Fail fast with a clear error if native bundles aren't present locally.
+  from(platformNativeDir) {
+    into(platform == 'win64' ? 'natives/win/x64' : 'natives/linux/x64')
+  }
+
+  // Verify native bundle exists.
   doFirst {
-    def missing = nativeBundleDirs.findAll { k, v -> !v.asFile.exists() }
-    if (!missing.isEmpty()) {
+    if (!platformNativeDir.asFile.exists()) {
       throw new GradleException(
-        "Missing native bundle directories: ${missing.collect { it.value.asFile.path }.join(', ')}\n" +
-        "Generate/provide binary_distrib for each platform first (win64 + linux64), then rebuild the shaded jar."
+        "Missing native bundle directory for platform '${platform}': ${platformNativeDir.asFile.absolutePath}\n" +
+        "Run cmakeConfigure/nativeRelease to generate native bundle first."
       )
     }
   }
@@ -165,6 +172,51 @@ tasks.named('shadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.Shadow
 
 tasks.named('assemble').configure {
   dependsOn(tasks.named('shadowJar'))
+}
+
+// Additional platform-specific shadowJar tasks for publishing multiple classifiers.
+tasks.register('shadowJarLinux64', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
+  archiveBaseName.set('browser4j-cef')
+  archiveVersion.set(project.version.toString())
+  archiveClassifier.set('linux64')
+
+  manifest {
+    from('java/resources/manifest/MANIFEST.MF')
+  }
+
+  from(nativeBundleDirs.linux64) { into('natives/linux/x64') }
+
+  doFirst {
+    def dir = nativeBundleDirs.linux64.asFile
+    if (!dir.exists()) {
+      throw new GradleException("Missing native bundle directory: ${dir.absolutePath}")
+    }
+  }
+}
+
+tasks.register('shadowJarWin64', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
+  archiveBaseName.set('browser4j-cef')
+  archiveVersion.set(project.version.toString())
+  archiveClassifier.set('win64')
+
+  manifest {
+    from('java/resources/manifest/MANIFEST.MF')
+  }
+
+  from(nativeBundleDirs.win64) { into('natives/win/x64') }
+
+  doFirst {
+    def dir = nativeBundleDirs.win64.asFile
+    if (!dir.exists()) {
+      throw new GradleException("Missing native bundle directory: ${dir.absolutePath}")
+    }
+  }
+}
+
+tasks.register('publishAllPlatforms') {
+  group = 'publishing'
+  description = 'Build and publish all platform jars (base + linux64 + win64) to Hyperpowered Maven.'
+  dependsOn('shadowJar', 'shadowJarLinux64', 'shadowJarWin64', 'publishAllPublicationsToHyperpoweredMavenRepository')
 }
 
 tasks.register('jcefTestsJar', Jar) {
@@ -209,6 +261,38 @@ publishing {
         }
       }
     }
+
+    mavenJavaLinux64(MavenPublication) {
+      groupId = project.group.toString()
+      artifactId = project.name
+      version = project.version.toString()
+      artifact(tasks.named('shadowJarLinux64')) {
+        classifier = 'linux64'
+      }
+      pom {
+        name.set('browser4j-cef')
+        description.set('JCEF Java wrapper for Browser4J (Linux x64)')
+        url.set('https://github.com/browser4j/browser4j-cef')
+        properties.put('browser4j.platform', 'linux64')
+        properties.put('browser4j.nativeArch', 'x64')
+      }
+    }
+
+    mavenJavaWin64(MavenPublication) {
+      groupId = project.group.toString()
+      artifactId = project.name
+      version = project.version.toString()
+      artifact(tasks.named('shadowJarWin64')) {
+        classifier = 'win64'
+      }
+      pom {
+        name.set('browser4j-cef')
+        description.set('JCEF Java wrapper for Browser4J (Windows x64)')
+        url.set('https://github.com/browser4j/browser4j-cef')
+        properties.put('browser4j.platform', 'win64')
+        properties.put('browser4j.nativeArch', 'x64')
+      }
+    }
   }
   repositories {
     maven {
@@ -220,6 +304,14 @@ publishing {
       }
     }
   }
+}
+
+tasks.named('publishMavenJavaPublicationToHyperpoweredMavenRepository').configure {
+  dependsOn(tasks.named('shadowJar'))
+}
+
+tasks.named('publish').configure {
+  dependsOn(tasks.named('shadowJar'))
 }
 
 tasks.register('jcefJavadoc', Javadoc) {
