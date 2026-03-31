@@ -1,5 +1,9 @@
 plugins {
   id 'java-library'
+  id 'maven-publish'
+  // Shaded (fat) JAR packaging.
+  // Gradle wrapper in this repo is 9.x, so we use the GradleUp Shadow plugin line.
+  id 'com.gradleup.shadow' version '9.4.1'
 }
 
 group = 'org.browser4j'
@@ -128,6 +132,40 @@ tasks.named('jar') {
   }
 }
 
+def nativeBundleDirs = [
+  win64  : layout.projectDirectory.dir('binary_distrib/win64/bin/lib/win64'),
+  linux64: layout.projectDirectory.dir('binary_distrib/linux64/bin/lib/linux64'),
+]
+
+tasks.named('shadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar).configure {
+  // Keep the original `jar` for consumers that don't want embedded natives/deps.
+  archiveClassifier = 'all'
+
+  // Ensure module name is preserved for the shaded artifact too.
+  manifest {
+    from('java/resources/manifest/MANIFEST.MF')
+  }
+
+  // Embed native bundles under a stable resource prefix.
+  from(nativeBundleDirs.win64) { into('natives/win/x64') }
+  from(nativeBundleDirs.linux64) { into('natives/linux/x64') }
+
+  // Fail fast with a clear error if native bundles aren't present locally.
+  doFirst {
+    def missing = nativeBundleDirs.findAll { k, v -> !v.asFile.exists() }
+    if (!missing.isEmpty()) {
+      throw new GradleException(
+        "Missing native bundle directories: ${missing.collect { it.value.asFile.path }.join(', ')}\n" +
+        "Generate/provide binary_distrib for each platform first (win64 + linux64), then rebuild the shaded jar."
+      )
+    }
+  }
+}
+
+tasks.named('assemble').configure {
+  dependsOn(tasks.named('shadowJar'))
+}
+
 tasks.register('jcefTestsJar', Jar) {
   archiveFileName = 'jcef-tests.jar'
   from(sourceSets.jcefTests.output)
@@ -141,6 +179,44 @@ tasks.register('stageOut') {
       from(tasks.named('jar'))
       from(tasks.named('jcefTestsJar'))
       into(outDir)
+    }
+  }
+}
+
+publishing {
+  publications {
+    mavenJava(MavenPublication) {
+      from components.java
+      pom {
+        name.set('browser4j-cef')
+        description.set('JCEF Java wrapper for Browser4J')
+        url.set('https://github.com/browser4j/browser4j-cef')
+        licenses {
+          license {
+            name.set('MIT License')
+            url.set('https://opensource.org/licenses/MIT')
+          }
+        }
+        developers {
+          developer {
+            id.set('balbucio')
+            name.set('Silvan Balbucio')
+          }
+        }
+        scm {
+          url.set('https://github.com/browser4j/browser4j-cef.git')
+        }
+      }
+    }
+  }
+  repositories {
+    maven {
+      name = 'HyperpoweredMaven'
+      url = uri(version.endsWith('-SNAPSHOT') ? 'https://maven.dev.hyperpowered.net/snapshots' : 'https://maven.dev.hyperpowered.net/releases')
+      credentials {
+        username = System.getenv('HYPER_MAVEN_USERNAME') ?: ''
+        password = System.getenv('HYPER_MAVEN_PASSWORD') ?: ''
+      }
     }
   }
 }

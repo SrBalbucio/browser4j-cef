@@ -5,7 +5,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.cef.CefApp;
 import org.cef.CefSettings;
+import org.cef.SystemBootstrap;
 import balbucio.browser4j.core.process.BrowserProcessManager;
+
+import java.nio.file.Path;
 
 public class BrowserRuntime {
     private static final Logger log = LoggerFactory.getLogger(BrowserRuntime.class);
@@ -53,6 +56,10 @@ public class BrowserRuntime {
         if (initialized) return;
 
         log.info("Initializing BrowserRuntime...");
+
+        // Prepare native bundle (extract + set custom loader) BEFORE any JCEF startup call.
+        NativeBundle.PreparedNatives natives = NativeBundle.prepare(Path.of(config.getNativeCachePath()));
+        SystemBootstrap.setLoader(natives.loader);
         
         if (!CefApp.startup(null)) {
             throw new RuntimeException("Failed to startup native JCEF components.");
@@ -65,6 +72,18 @@ public class BrowserRuntime {
         settings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_DEFAULT;
         settings.windowless_rendering_enabled = config.isOsrEnabled();
         settings.persist_session_cookies = config.isCookiesPersistent();
+
+        // Point JCEF to the extracted native/runtime assets.
+        Path root = natives.extractedRoot;
+        if (natives.platform.os == NativeBundle.Os.WIN) {
+            settings.browser_subprocess_path = root.resolve("jcef_helper.exe").toAbsolutePath().toString();
+            settings.resources_dir_path = root.toAbsolutePath().toString();
+            settings.locales_dir_path = root.resolve("locales").toAbsolutePath().toString();
+        } else {
+            settings.browser_subprocess_path = root.resolve("jcef_helper").toAbsolutePath().toString();
+            settings.resources_dir_path = root.toAbsolutePath().toString();
+            settings.locales_dir_path = root.resolve("locales").toAbsolutePath().toString();
+        }
 
         // Custom config via Process Manager
         BrowserProcessManager.configureArgs(settings, config);

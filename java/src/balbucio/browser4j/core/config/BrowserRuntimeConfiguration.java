@@ -12,6 +12,7 @@ public class BrowserRuntimeConfiguration {
 
     private final String cachePath;
     private final String userDataPath;
+    private final String nativeCachePath;
     private final boolean enableGPU;
     private final boolean enableSandbox;
     private final boolean osrEnabled;
@@ -37,6 +38,7 @@ public class BrowserRuntimeConfiguration {
     private BrowserRuntimeConfiguration(Builder builder) {
         this.cachePath = builder.cachePath;
         this.userDataPath = builder.userDataPath;
+        this.nativeCachePath = builder.nativeCachePath;
         this.enableGPU = builder.enableGPU;
         this.enableSandbox = builder.enableSandbox;
         this.osrEnabled = builder.osrEnabled;
@@ -64,11 +66,23 @@ public class BrowserRuntimeConfiguration {
         return new Builder();
     }
 
+    // Explicit getters (in addition to Lombok) so tooling that doesn't process Lombok
+    // still has a stable API surface.
+    public String getCachePath() { return cachePath; }
+    public String getUserDataPath() { return userDataPath; }
+    public String getNativeCachePath() { return nativeCachePath; }
+    public boolean isEnableSandbox() { return enableSandbox; }
+    public boolean isOsrEnabled() { return osrEnabled; }
+    public boolean isCookiesPersistent() { return cookiesPersistent; }
+
     public static class Builder {
         private String cachePath = System.getProperty(
                 balbucio.browser4j.browser.profile.ProfileManager.CACHE_PATH_PROPERTY,
                 new File(".cache").getAbsolutePath());
         private String userDataPath = new File(".userdata").getAbsolutePath();
+        private String nativeCachePath = System.getProperty(
+                "browser4j.native.cache.path",
+                new File(".native-cache").getAbsolutePath());
         private boolean enableGPU = true;
         private boolean enableSandbox = false;
         private boolean osrEnabled = false;
@@ -98,6 +112,11 @@ public class BrowserRuntimeConfiguration {
 
         public Builder userDataPath(String userDataPath) {
             this.userDataPath = userDataPath;
+            return this;
+        }
+
+        public Builder nativeCachePath(String nativeCachePath) {
+            this.nativeCachePath = nativeCachePath;
             return this;
         }
 
