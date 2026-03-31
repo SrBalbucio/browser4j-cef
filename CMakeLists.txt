@@ -241,6 +241,15 @@ endif()
 
 # Generate the JCEF version header.
 message(STATUS "Generating native/jcef_version.h file...")
+message("${PYTHON_EXECUTABLE}"
+                  "tools/make_version_header.py"
+                  "--header"
+                  "native/jcef_version.h"
+                  "--cef-path"
+                  "${CEF_ROOT}"
+                    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                    RESULT_VARIABLE EXECUTE_RV
+                    )
 execute_process(
   COMMAND "${PYTHON_EXECUTABLE}"
           "tools/make_version_header.py"

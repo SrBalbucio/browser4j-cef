@@ -9,6 +9,7 @@ from __future__ import print_function
 import hashlib
 import optparse
 import os
+import shutil
 
 try:
   import Queue as queue
@@ -16,7 +17,6 @@ except ImportError:  # For Py3 compatibility
   import queue
 
 import re
-import shutil
 import stat
 import sys
 import tarfile
@@ -31,8 +31,6 @@ import subprocess2
 # unix standards.
 _TEMPDIR_ENV_VARS = ('TMPDIR', 'TEMP', 'TMP')
 
-GSUTIL_DEFAULT_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), 'gsutil.py')
 # Maps sys.platform to what we actually want to call them.
 PLATFORM_MAPPING = {
     'cygwin': 'win',
@@ -65,6 +63,23 @@ def GetNormalizedPlatform():
     return 'win32'
   return sys.platform
 
+# --- gsutil resolution (PATH only) ---
+def _resolve_gsutil_from_path():
+  """Resolves gsutil executable from PATH.
+
+  This repo intentionally uses the system-installed gsutil (Google Cloud SDK)
+  and does not vendor/download a pinned gsutil.
+  """
+  candidates = ['gsutil']
+  if sys.platform == 'win32':
+    # Cloud SDK commonly exposes gsutil via gsutil.cmd (and sometimes .bat).
+    candidates = ['gsutil.cmd', 'gsutil.bat', 'gsutil']
+  for name in candidates:
+    exe = shutil.which(name)
+    if exe:
+      return exe
+  return None
+
 # Common utilities
 class Gsutil(object):
   """Call gsutil with some predefined settings.  This is a convenience object,
@@ -79,8 +94,8 @@ class Gsutil(object):
   RETRY_DELAY_MULTIPLE = 1.3
 
   def __init__(self, path, boto_path=None):
-    if not os.path.exists(path):
-      raise FileNotFoundError('GSUtil not found in %s' % path)
+    if not path or not os.path.exists(path):
+      raise FileNotFoundError('gsutil not found in PATH')
     self.path = path
     self.boto_path = boto_path
 
@@ -99,12 +114,12 @@ class Gsutil(object):
     return env
 
   def call(self, *args):
-    cmd = [sys.executable, self.path]
+    cmd = [self.path]
     cmd.extend(args)
     return subprocess2.call(cmd, env=self.get_sub_env())
 
   def check_call(self, *args):
-    cmd = [sys.executable, self.path]
+    cmd = [self.path]
     cmd.extend(args)
     ((out, err), code) = subprocess2.communicate(
         cmd,
@@ -294,7 +309,7 @@ def _downloader_worker_thread(thread_num, q, force, base_url,
       elif code == 401:
         out_q.put(
             """%d> Failed to fetch file %s for %s due to unauthorized access,
-            skipping. Try running `gsutil.py config` and pass 0 if you don't
+            skipping. Try running `gsutil config` and pass 0 if you don't
             know your project id.""" % (thread_num, file_url, output_filename))
         ret_codes.put(
             (1, 'Failed to fetch file %s for %s due to unauthorized access.' %
@@ -576,12 +591,12 @@ def main(args):
     options.boto = os.environ.get('NO_AUTH_BOTO_CONFIG', os.devnull)
 
   # Make sure gsutil exists where we expect it to.
-  if os.path.exists(GSUTIL_DEFAULT_PATH):
-    gsutil = Gsutil(GSUTIL_DEFAULT_PATH,
-                    boto_path=options.boto)
-  else:
-    parser.error('gsutil not found in %s, bad depot_tools checkout?' %
-                 GSUTIL_DEFAULT_PATH)
+  gsutil_exe = _resolve_gsutil_from_path()
+  if not gsutil_exe:
+    parser.error(
+        'gsutil not found on PATH. Install the Google Cloud SDK and ensure '
+        '`gsutil` is available (e.g. open a shell where Cloud SDK is on PATH).')
+  gsutil = Gsutil(gsutil_exe, boto_path=options.boto)
 
   # Passing in -g/--config will run our copy of GSUtil, then quit.
   if options.config:

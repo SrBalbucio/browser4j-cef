@@ -1,0 +1,304 @@
+plugins {
+  id 'java-library'
+}
+
+group = 'org.browser4j'
+version = '1.0.0-SNAPSHOT'
+
+java {
+  // Ant/scripts historically compiled as Java 8 bytecode.
+  sourceCompatibility = JavaVersion.VERSION_17
+  targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType(JavaCompile).configureEach {
+  // Build using modern JDKs while still producing Java 8 bytecode.
+  options.release = 17
+}
+
+repositories {
+  // This repo vendors dependencies under third_party/.
+  // Keep empty to avoid implicit network dependency.
+
+  mavenCentral()
+  google()
+
+  maven {
+    name "hyperpoweredMavenReleases"
+    url "https://maven.dev.hyperpowered.net/releases"
+  }
+
+}
+
+def isWindows = System.getProperty('os.name').toLowerCase().contains('win')
+def isLinux = System.getProperty('os.name').toLowerCase().contains('linux')
+
+def arch = System.getProperty('os.arch').toLowerCase()
+def is64 = arch.contains('64') || arch.contains('amd64') || arch.contains('x86_64')
+
+// Platform string used to preserve the current out/<platform> conventions.
+// Override with -Pplatform=win32|win64|linux32|linux64 if needed.
+def platform = (project.findProperty('platform') ?: (isWindows ? (is64 ? 'win64' : 'win32') : (isLinux ? (is64 ? 'linux64' : 'linux32') : 'unknown'))).toString()
+
+def outDir = layout.projectDirectory.dir("out/${platform}")
+def binaryDistribDir = layout.projectDirectory.dir("binary_distrib/${platform}")
+
+// --- Java sources/resources (non-standard layout) ---
+sourceSets {
+  main {
+    java {
+      srcDirs = ['java/src']
+      include 'org/cef/**/*.java'
+      include 'balbucio/**/*.java'
+      // Avoid compiling macOS-only classes on Windows/Linux.
+      if (isWindows || isLinux) {
+        exclude 'org/cef/**/mac/**'
+      }
+      // Some upstream JCEF callback/handler types are not present in this repo snapshot.
+      exclude 'balbucio/browser4j/security/handlers/PermissionHandlerImpl.java'
+    }
+    resources {
+      srcDirs = ['java/resources']
+    }
+  }
+
+  // Keep existing tests/demo sources as a separate sourceSet that produces a jar,
+  // not necessarily wired into Gradle's JUnit test runner.
+  jcefTests {
+    java {
+      srcDirs = ['java/test']
+      include '**/*.java'
+    }
+    resources {
+      srcDirs = ['java/test']
+      exclude '**/*.java'
+    }
+    compileClasspath += sourceSets.main.output + configurations.compileClasspath
+    runtimeClasspath += output + compileClasspath
+  }
+}
+
+dependencies {
+  // Mirror tools/compile.* classpath:
+  // third_party/jogamp/jar/* + third_party/junit/*
+  compileOnly fileTree(dir: 'third_party/jogamp/jar', include: ['*.jar'])
+  compileOnly fileTree(dir: 'third_party/junit', include: ['junit*.jar'])
+
+  implementation 'org.slf4j:slf4j-api:2.0.17'
+  // Source: https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/
+  implementation 'com.fasterxml.jackson.core:jackson-databind:2.21.2'
+  // Source: https://mvnrepository.com/artifact/org.jsoup/jsoup
+  implementation 'org.jsoup:jsoup:1.22.1'
+  // Source: https://mvnrepository.com/artifact/com.google.code.gson/gson
+  implementation 'com.google.code.gson:gson:2.13.2'
+  // Source: https://mvnrepository.com/artifact/org.json/json
+  implementation 'org.json:json:20251224'
+  // Source: https://mvnrepository.com/artifact/org.xerial/sqlite-jdbc
+  implementation 'org.xerial:sqlite-jdbc:3.51.3.0'
+
+  // Annotations
+  compileOnly 'org.jetbrains:annotations:26.1.0'
+  annotationProcessor 'org.jetbrains:annotations:26.1.0'
+
+  testCompileOnly 'org.jetbrains:annotations:26.1.0'
+  testAnnotationProcessor 'org.jetbrains:annotations:26.1.0'
+
+  // Lombok
+  compileOnly 'org.projectlombok:lombok:1.18.44'
+  annotationProcessor 'org.projectlombok:lombok:1.18.44'
+
+  testCompileOnly 'org.projectlombok:lombok:1.18.44'
+  testAnnotationProcessor 'org.projectlombok:lombok:1.18.44'
+
+  // Tests
+  testImplementation 'org.junit.jupiter:junit-jupiter-api:5.14.3'
+  testImplementation 'org.mockito:mockito-core:5.23.0'
+  compileOnly 'org.mockito:mockito-core:5.23.0'
+
+  jcefTestsCompileOnly fileTree(dir: 'third_party/jogamp/jar', include: ['*.jar'])
+  jcefTestsCompileOnly fileTree(dir: 'third_party/junit', include: ['junit*.jar'])
+  jcefTestsCompileOnly sourceSets.main.output
+
+}
+
+tasks.named('jar') {
+  archiveFileName = 'jcef.jar'
+  manifest {
+    from('java/resources/manifest/MANIFEST.MF')
+  }
+}
+
+tasks.register('jcefTestsJar', Jar) {
+  archiveFileName = 'jcef-tests.jar'
+  from(sourceSets.jcefTests.output)
+}
+
+tasks.register('stageOut') {
+  dependsOn(tasks.named('jar'), tasks.named('jcefTestsJar'))
+  doLast {
+    outDir.asFile.mkdirs()
+    copy {
+      from(tasks.named('jar'))
+      from(tasks.named('jcefTestsJar'))
+      into(outDir)
+    }
+  }
+}
+
+tasks.register('jcefJavadoc', Javadoc) {
+  group = 'documentation'
+  description = 'Generates JCEF Java API docs (out/docs).'
+  source = sourceSets.main.allJava
+  classpath = sourceSets.main.compileClasspath
+  destinationDir = layout.projectDirectory.dir('out/docs').asFile
+  options.addBooleanOption('Xdoclint:none', true)
+  failOnError = false
+}
+
+// --- Native (CMake) orchestration ---
+def cmakeBuildDir = layout.projectDirectory.dir('jcef_build')
+
+def cmakeGenerator = (project.findProperty('cmakeGenerator') ?: (isWindows ? 'Visual Studio 17 2022' : 'Ninja')).toString()
+def cmakeBuildType = (project.findProperty('cmakeBuildType') ?: 'Release').toString()
+def cmakeArch = (project.findProperty('cmakeArch') ?: (isWindows ? (is64 ? 'x64' : 'Win32') : '')).toString()
+
+tasks.register('cmakeConfigure', Exec) {
+  group = 'native'
+  description = 'Configures CMake into jcef_build/.'
+
+  workingDir = projectDir
+  doFirst { cmakeBuildDir.asFile.mkdirs() }
+
+  // CMake in this repo honors ENV{PYTHON_EXECUTABLE}. On Windows, the default Python
+  // found on PATH may not be the desired Python distribution (use this to pin it).
+  def pythonExecutable = (project.findProperty('pythonExecutable') ?: '').toString().trim()
+  if (!pythonExecutable.isEmpty()) {
+    environment 'PYTHON_EXECUTABLE', pythonExecutable
+  }
+
+  if (isWindows) {
+    // For Visual Studio generator we pass -A.
+    commandLine 'cmake',
+      '-S', projectDir.absolutePath,
+      '-B', cmakeBuildDir.asFile.absolutePath,
+      '-G', cmakeGenerator,
+      '-A', cmakeArch
+  } else {
+    commandLine 'cmake',
+      '-S', projectDir.absolutePath,
+      '-B', cmakeBuildDir.asFile.absolutePath,
+      '-G', cmakeGenerator,
+      "-DCMAKE_BUILD_TYPE=${cmakeBuildType}"
+  }
+}
+
+tasks.register('cmakeBuild', Exec) {
+  group = 'native'
+  description = 'Builds native targets via CMake.'
+  dependsOn(tasks.named('cmakeConfigure'))
+  workingDir = projectDir
+
+  if (isWindows) {
+    commandLine 'cmake',
+      '--build', cmakeBuildDir.asFile.absolutePath,
+      '--config', cmakeBuildType
+  } else {
+    commandLine 'cmake',
+      '--build', cmakeBuildDir.asFile.absolutePath,
+      '--config', cmakeBuildType
+  }
+}
+
+tasks.register('nativeRelease') {
+  group = 'native'
+  description = 'Configures and builds native Release via CMake.'
+  dependsOn(tasks.named('cmakeBuild'))
+}
+
+// --- Distribution (binary_distrib/<platform>) ---
+tasks.register('makeDistrib') {
+  group = 'distribution'
+  description = "Creates binary_distrib/${platform} similar to tools/make_distrib.*"
+  dependsOn(tasks.named('stageOut'), tasks.named('nativeRelease'), tasks.named('jcefJavadoc'))
+
+  doLast {
+    def distribBinDir = binaryDistribDir.dir('bin').asFile
+    def distribDocsDir = binaryDistribDir.dir('docs').asFile
+    def distribLibDir = binaryDistribDir.dir("bin/lib/${platform}").asFile
+
+    distribBinDir.mkdirs()
+    distribDocsDir.mkdirs()
+    distribLibDir.mkdirs()
+
+    // Copy jars.
+    copy {
+      from fileTree(dir: 'third_party/jogamp/jar', include: ['gluegen-rt.jar', 'jogl-all.jar'])
+      // Platform-specific jogamp natives jars naming differs by platform/arch.
+      // Keep broad include and let runtime select; matches existing distrib scripts intent.
+      from fileTree(dir: 'third_party/jogamp/jar', include: ['*natives-*.jar'])
+      from outDir.file('jcef.jar')
+      from outDir.file('jcef-tests.jar')
+      into distribBinDir
+    }
+
+    // Copy test sources/resources (like tools/make_distrib.*).
+    copy {
+      from('java/test')
+      into new File(distribBinDir, 'tests')
+    }
+
+    // Copy docs (out/docs -> binary_distrib/<platform>/docs)
+    copy {
+      from layout.projectDirectory.dir('out/docs')
+      into distribDocsDir
+    }
+
+    // Copy native outputs.
+    // Windows: legacy scripts expect jcef_build/native/Release.
+    // Linux: output dir is determined by CMake macros; default commonly ends up under jcef_build/native.
+    def nativeOutCandidates = []
+    if (isWindows) {
+      nativeOutCandidates << layout.projectDirectory.dir("jcef_build/native/${cmakeBuildType}").asFile
+    }
+    nativeOutCandidates << layout.projectDirectory.dir("jcef_build/native").asFile
+
+    def nativeOutDir = nativeOutCandidates.find { it.exists() && it.isDirectory() }
+    if (nativeOutDir == null) {
+      throw new GradleException("Native output directory not found. Looked in: ${nativeOutCandidates}")
+    }
+
+    copy {
+      from nativeOutDir
+      into distribLibDir
+      include '**/*'
+      // Avoid copying intermediate build files that aren't part of the runtime distribution.
+      exclude '**/*.pdb', '**/*.ilk', '**/*.exp', '**/*.lib', '**/CMakeFiles/**', '**/*.cmake', '**/Makefile', '**/*.ninja', '**/*.obj'
+    }
+
+    // Misc files at the distrib root.
+    copy {
+      from 'LICENSE.txt'
+      from fileTree(dir: 'third_party/jogamp', include: ['*.LICENSE.txt'])
+      into binaryDistribDir
+    }
+  }
+}
+
+// --- JNI header generation (modern replacement for javah) ---
+// Optional: generate headers for classes with native methods using javac -h.
+// Usage: ./gradlew generateJniHeaders -PjniHeaderOut=native
+tasks.register('generateJniHeaders', JavaCompile) {
+  group = 'native'
+  description = 'Generates JNI headers via javac -h (replacement for javah).'
+
+  source = sourceSets.main.java
+  classpath = sourceSets.main.compileClasspath
+  destinationDirectory = layout.buildDirectory.dir('tmp/jni-classes')
+
+  def headerOut = (project.findProperty('jniHeaderOut') ?: 'native').toString()
+  options.compilerArgs += ['-h', layout.projectDirectory.dir(headerOut).asFile.absolutePath]
+
+  // Keep compilation output minimal; we only care about header generation here.
+  options.debug = false
+}
+
