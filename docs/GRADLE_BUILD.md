@@ -71,10 +71,60 @@ Configurar:
 ./gradlew cmakeConfigure
 ```
 
+#### Build Linux x64 via Docker (recomendado para ambiente limpo)
+
+1. Crie a imagem Docker (executar na raiz do repo):
+
+```bash
+docker build -t browser4j-cef-linux64 -f Dockerfile.linux64 .
+```
+
+2. Execute o build dentro do container:
+
+```bash
+docker run --rm -v "$(pwd)":/workspace -w /workspace browser4j-cef-linux64 \
+  bash -lc "./gradlew cmakeConfigure nativeRelease --no-daemon"
+```
+
+3. Opcional: gerar distribuição binária:
+
+```bash
+docker run --rm -v "$(pwd)":/workspace -w /workspace browser4j-cef-linux64 \
+  bash -lc "./gradlew makeDistrib --no-daemon"
+```
+
+> Observação: por enquanto o foco é Linux x64, então o Windows pode ser feito localmente com o fluxo já existente.
+
 Build (Release):
 
 ```bash
 ./gradlew nativeRelease
+```
+
+### Publicar no Maven (hyperpowered)
+
+Este projeto já está configurado em `build.gradle` para publicar via `maven-publish`.
+
+- releases: `https://maven.dev.hyperpowered.net/releases`
+- snapshots: `https://maven.dev.hyperpowered.net/snapshots`
+
+Defina as variáveis de ambiente antes de chamar o publish:
+
+```bash
+export HYPER_MAVEN_USERNAME="seu_usuario"
+export HYPER_MAVEN_PASSWORD="sua_senha"
+```
+
+Para publicar a versão atual:
+
+```bash
+./gradlew publish --no-daemon
+```
+
+Para publicar apenas `mavenJava` (relacionado):
+
+```bash
+./gradlew publishMavenJavaPublicationToHyperpoweredMavenRepository --no-daemon
 ```
 
 #### Se o `cmakeConfigure` falhar por falta de `gsutil`

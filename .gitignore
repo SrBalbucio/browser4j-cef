@@ -61,3 +61,4 @@ get-pip.py
 build
 .gradle
 jcef_build
+jcef_build_*

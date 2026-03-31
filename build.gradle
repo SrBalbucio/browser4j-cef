@@ -296,7 +296,7 @@ tasks.register('nativeRelease') {
 tasks.register('makeDistrib') {
   group = 'distribution'
   description = "Creates binary_distrib/${platform} similar to tools/make_distrib.*"
-  dependsOn(tasks.named('stageOut'), tasks.named('nativeRelease'), tasks.named('jcefJavadoc'))
+  dependsOn(tasks.named('stageOut'), tasks.named('nativeRelease'))
 
   doLast {
     def distribBinDir = binaryDistribDir.dir('bin').asFile

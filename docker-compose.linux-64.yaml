@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  build:
+    image: browser4j-cef-linux64
+    working_dir: /workspace
+    volumes:
+#      - ./native:/workspace/native
+#      - ./tools:/workspace/tools
+#      - ./third_party:/workspace/third_party
+#      - ./java:/workspace/java
+#      - ./cmake:/workspace/cmake
+#      - ./build.gradle:/workspace/build.gradle
+#      - ./gradlew:/workspace/gradlew
+#      - ./gradlew.bat:/workspace/gradlew.bat
+#      - ./settings.gradle:/workspace/settings.gradle
+#      - ./CMakeLists.txt:/workspace/CMakeLists.txt
+#      - ./.style.cfg:/workspace/.style.cfg
+#      - ./.style.yapf:/workspace/.style.yapf
+#      - ./appveyor.yml:/workspace/appveyor.yml
+#      - ./jcef_build_linux_64:/workspace/jcef_build
+#      - ./gradle:/workspace/gradle
+#      - ./.clang-format:/workspace/.clang-format
+      - ".:/workspace"
+      - "./jcef_build_linux_64:/workspace/jcef_build"
+    command: >
+      bash -lc "./gradlew cmakeConfigure nativeRelease makeDistrib --no-daemon"

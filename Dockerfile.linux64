@@ -1,0 +1,49 @@
+# Dockerfile for building browser4j-cef native Linux x64 artifacts.
+# Usage:
+#   docker build -t browser4j-cef-linux64 -f Dockerfile.linux64 .
+#   docker run --rm -v "$PWD":/workspace -w /workspace browser4j-cef-linux64 \ 
+#     ./gradlew cmakeConfigure nativeRelease --no-daemon
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    wget \
+    unzip \
+    xz-utils \
+    build-essential \
+    cmake \
+    ninja-build \
+    pkg-config \
+    python3 \
+    python3-pip \
+    openjdk-17-jdk \
+    gsutil \
+    libgtk-3-dev \
+    libnss3-dev \
+    libasound2-dev \
+    libx11-dev \
+    libxcursor-dev \
+    libxrandr-dev \
+    libxss-dev \
+    libxinerama-dev \
+    libxcomposite-dev \
+    libxdamage-dev \
+    libxi-dev \
+    libglib2.0-dev \
+    libdbus-1-dev \
+    libgdk-pixbuf2.0-dev \
+    libatk1.0-dev \
+    libcups2-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Keep Gradle cache persistent inside container for performance.
+RUN mkdir -p /root/.gradle
+
+CMD ["bash"]
