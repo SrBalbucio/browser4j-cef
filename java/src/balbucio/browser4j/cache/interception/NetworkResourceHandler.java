@@ -14,6 +14,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
 /**
@@ -31,8 +32,11 @@ public class NetworkResourceHandler extends CefResourceHandlerAdapter {
     private byte[] data;
     private int offset = 0;
     private int statusCode = 0;
+    private String contentTypeHeader;
     private String mimeType;
     private final Map<String, String> responseHeaders = new HashMap<>();
+    private volatile boolean cancelled = false;
+    private volatile CompletableFuture<?> pendingRequest;
 
     public NetworkResourceHandler(CacheManager cacheManager) {
         this.cacheManager = cacheManager;
@@ -57,12 +61,14 @@ public class NetworkResourceHandler extends CefResourceHandlerAdapter {
                 }
             });
 
-            HTTP_CLIENT.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofByteArray())
+            pendingRequest = HTTP_CLIENT.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofByteArray())
                     .thenAccept(response -> {
+                        if (cancelled) return;
                         this.statusCode = response.statusCode();
                         this.data = response.body();
-                        this.mimeType = response.headers().firstValue("Content-Type").orElse("application/octet-stream");
-                        
+                        this.contentTypeHeader = response.headers().firstValue("Content-Type").orElse(null);
+                        this.mimeType = normalizeMimeType(contentTypeHeader);
+
                         // Copy headers for JCEF response
                         response.headers().map().forEach((k, v) -> {
                             if (!v.isEmpty()) responseHeaders.put(k, v.get(0));
@@ -74,8 +80,10 @@ public class NetworkResourceHandler extends CefResourceHandlerAdapter {
                         callback.Continue();
                     })
                     .exceptionally(ex -> {
-                        LOG.warning("[Cache] Network proxy failed for " + url + ": " + ex.getMessage());
-                        callback.cancel();
+                        if (!cancelled) {
+                            LOG.warning("[Cache] Network proxy failed for " + url + ": " + ex.getMessage());
+                            callback.cancel();
+                        }
                         return null;
                     });
 
@@ -90,10 +98,13 @@ public class NetworkResourceHandler extends CefResourceHandlerAdapter {
         response.setStatus(statusCode);
         response.setMimeType(mimeType);
         responseHeaders.forEach((k, v) -> {
-            if (!k.equalsIgnoreCase("Content-Length")) {
+            if (!k.equalsIgnoreCase("Content-Length") && !k.equalsIgnoreCase("Content-Type")) {
                 response.setHeaderByName(k, v, true);
             }
         });
+        if (contentTypeHeader != null && !contentTypeHeader.isBlank()) {
+            response.setHeaderByName("Content-Type", contentTypeHeader, true);
+        }
         response.setHeaderByName("X-Cache-Status", "MISS (Proxied)", true);
         response_length.set(data != null ? data.length : 0);
     }
@@ -109,5 +120,23 @@ public class NetworkResourceHandler extends CefResourceHandlerAdapter {
         offset += toCopy;
         bytes_read.set(toCopy);
         return true;
+    }
+
+    @Override
+    public void cancel() {
+        cancelled = true;
+        CompletableFuture<?> req = pendingRequest;
+        if (req != null) req.cancel(true);
+    }
+
+    private static String normalizeMimeType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return "application/octet-stream";
+        }
+
+        int separator = contentType.indexOf(';');
+        String base = separator >= 0 ? contentType.substring(0, separator) : contentType;
+        base = base.trim();
+        return base.isEmpty() ? "application/octet-stream" : base;
     }
 }

@@ -2,12 +2,14 @@ package balbucio.browser4j.cache.config;
 
 import lombok.Builder;
 import lombok.Data;
+import lombok.Getter;
 
 /**
  * Global configuration for the Advanced Cache Module.
  */
 @Data
 @Builder
+@Getter
 public class CacheConfig {
     /** Enable the entire caching system. */
     @Builder.Default

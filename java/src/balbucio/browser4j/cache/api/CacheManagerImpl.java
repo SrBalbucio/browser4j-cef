@@ -41,6 +41,7 @@ public class CacheManagerImpl implements CacheManager {
 
     @Override
     public Optional<CacheEntry> get(String key) {
+        if (!config.isEnabled()) return Optional.empty();
         Optional<CacheEntry> entry = index.get(key);
         if (entry.isPresent()) {
             if (entry.get().isExpired()) {

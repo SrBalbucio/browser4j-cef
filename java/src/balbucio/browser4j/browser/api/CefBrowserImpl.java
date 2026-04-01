@@ -73,6 +73,7 @@ import balbucio.browser4j.browser.error.ErrorPageRegistry;
 import balbucio.browser4j.browser.error.ErrorPageRenderer;
 import balbucio.browser4j.browser.media.MediaModule;
 import balbucio.browser4j.browser.media.MediaModuleImpl;
+import org.cef.handler.CefLifeSpanHandlerAdapter;
 
 public class CefBrowserImpl implements Browser {
     private final CefBrowser cefBrowser;
@@ -98,6 +99,11 @@ public class CefBrowserImpl implements Browser {
     private final AutomationModuleImpl automationModule;
     private final PermissionModule permissionModule;
     private Consumer<String> consoleMessageHandler;
+
+    // Browser lifecycle state: the native CEF window is created asynchronously on the first
+    // Swing paint. Any loadURL call before onAfterCreated is queued here and executed once ready.
+    private volatile boolean browserReady_ = false;
+    private volatile String pendingNavigation_ = null;
 
     private final DevToolsModule devToolsModule = new DevToolsModule() {
         @Override
@@ -132,7 +138,8 @@ public class CefBrowserImpl implements Browser {
         this.jsBridge = new JSBridge(this.cefClient, this);
         this.metricsTracker = new MetricsTracker();
         this.securityModule = new SecurityModuleImpl();
-        this.networkHandler = new NetworkHandlerImpl(this.cefClient, this.metricsTracker, this.securityModule);
+        this.networkHandler = new NetworkHandlerImpl(this.cefClient, this.metricsTracker, this.securityModule,
+                BrowserRuntime.getConfig().isEnableNetworkInterception());
         this.storageModule = new StorageModuleImpl(this.jsBridge);
         this.errorPageRegistry = new ErrorPageRegistry();
         this.errorPageRenderer = new ErrorPageRenderer(this.errorPageRegistry);
@@ -163,17 +170,16 @@ public class CefBrowserImpl implements Browser {
         this.autocompleteService = new AutocompleteService(this.historyManager);
 
         // Initialize Cache
-        CacheConfig cacheConfig = CacheConfig.builder()
-                .enabled(true)
-                .maxCacheSizeBytes(1024L * 1024 * 1024)
-                .build();
         Path cachePath = historyPath.resolve("cache");
-        this.cacheManager = new CacheManagerImpl(cacheConfig, cachePath);
-        this.networkHandler.setCacheInterceptor(new CacheInterceptor(cacheManager));
+        this.cacheManager = new CacheManagerImpl(options.getCacheConfig(), cachePath);
+        if (options.getCacheConfig().isEnabled()) {
+            this.networkHandler.setCacheInterceptor(new CacheInterceptor(cacheManager));
+        }
 
         this.permissionModule = new PermissionModuleImpl(historyPath);
 
-        this.cefClient.addLifeSpanHandler(new PopupAndLifeSpanHandler(this.securityModule));
+        // Life span handler is registered in setupHandlers() — not here — so that
+        // onAfterCreated is captured before any other handler can fire.
         this.cefClient.addDownloadHandler(new DownloadHandlerImpl((DownloadManagerImpl) this.downloadManager, profileId));
 
         CefRequestContext context = CefRequestContext.getGlobalContext();
@@ -194,7 +200,7 @@ public class CefBrowserImpl implements Browser {
         this.cookieManager = new CookieManager(globalCookieManager);
 
         boolean osrEnabled = BrowserRuntime.getConfig().isOsrEnabled();
-        this.cefBrowser = cefClient.createBrowser("about:blank", osrEnabled, false, context);
+        this.cefBrowser = cefClient.createBrowser(options.getInitialUrl(), osrEnabled, false, context);
         this.inputController = new InputController(this.cefBrowser);
         this.automationModule = new AutomationModuleImpl(this.jsBridge, this.inputController);
 
@@ -234,6 +240,28 @@ public class CefBrowserImpl implements Browser {
     }
 
     private void setupHandlers(CefClient client) {
+        // Life span: handles popup policy + signals browser readiness after onAfterCreated.
+        // NOTE: addLifeSpanHandler accepts only the first registration, so this is the sole one.
+        // securityModule is initialized after setupHandlers() returns, but all these callbacks
+        // only fire at runtime (after construction), so the reference is always valid by then.
+        client.addLifeSpanHandler(new CefLifeSpanHandlerAdapter() {
+            @Override
+            public boolean onBeforePopup(org.cef.browser.CefBrowser browser, org.cef.browser.CefFrame frame,
+                    String target_url, String target_frame_name) {
+                return securityModule != null && securityModule.isPopupBlocked(target_url);
+            }
+
+            @Override
+            public void onAfterCreated(org.cef.browser.CefBrowser browser) {
+                browserReady_ = true;
+                String pending = pendingNavigation_;
+                if (pending != null) {
+                    pendingNavigation_ = null;
+                    browser.loadURL(pending);
+                }
+            }
+        });
+
         client.addLoadHandler(new CefLoadHandlerAdapter() {
             @Override
             public void onLoadStart(CefBrowser browser, org.cef.browser.CefFrame frame, CefRequest.TransitionType transitionType) {
@@ -449,7 +477,13 @@ public class CefBrowserImpl implements Browser {
 
     @Override
     public void loadURL(String url) {
-        cefBrowser.loadURL(url);
+        if (browserReady_) {
+            cefBrowser.loadURL(url);
+        } else {
+            // Native browser not yet initialized (onAfterCreated hasn't fired). Queue the URL
+            // so it is executed as soon as the browser window is ready.
+            pendingNavigation_ = url;
+        }
     }
 
     @Override

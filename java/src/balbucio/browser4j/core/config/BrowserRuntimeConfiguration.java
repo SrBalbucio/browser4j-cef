@@ -13,6 +13,7 @@ public class BrowserRuntimeConfiguration {
     private final String cachePath;
     private final String userDataPath;
     private final String nativeCachePath;
+    private final boolean disableNativeLoader;
     private final boolean enableGPU;
     private final boolean enableSandbox;
     private final boolean osrEnabled;
@@ -39,6 +40,7 @@ public class BrowserRuntimeConfiguration {
         this.cachePath = builder.cachePath;
         this.userDataPath = builder.userDataPath;
         this.nativeCachePath = builder.nativeCachePath;
+        this.disableNativeLoader = builder.disableNativeLoader;
         this.enableGPU = builder.enableGPU;
         this.enableSandbox = builder.enableSandbox;
         this.osrEnabled = builder.osrEnabled;
@@ -66,15 +68,6 @@ public class BrowserRuntimeConfiguration {
         return new Builder();
     }
 
-    // Explicit getters (in addition to Lombok) so tooling that doesn't process Lombok
-    // still has a stable API surface.
-    public String getCachePath() { return cachePath; }
-    public String getUserDataPath() { return userDataPath; }
-    public String getNativeCachePath() { return nativeCachePath; }
-    public boolean isEnableSandbox() { return enableSandbox; }
-    public boolean isOsrEnabled() { return osrEnabled; }
-    public boolean isCookiesPersistent() { return cookiesPersistent; }
-
     public static class Builder {
         private String cachePath = System.getProperty(
                 balbucio.browser4j.browser.profile.ProfileManager.CACHE_PATH_PROPERTY,
@@ -83,6 +76,7 @@ public class BrowserRuntimeConfiguration {
         private String nativeCachePath = System.getProperty(
                 "browser4j.native.cache.path",
                 new File(".native-cache").getAbsolutePath());
+        private boolean disableNativeLoader;
         private boolean enableGPU = true;
         private boolean enableSandbox = false;
         private boolean osrEnabled = false;
@@ -104,6 +98,11 @@ public class BrowserRuntimeConfiguration {
         private boolean enableWebRTC = true;
         private String webrtcIPHandlingPolicy = "default";
         private String autoPlayPolicy = "no-user-gesture-required";
+
+        public Builder disableNativeLoader() {
+            this.disableNativeLoader = true;
+            return this;
+        }
 
         public Builder cachePath(String cachePath) {
             this.cachePath = cachePath;

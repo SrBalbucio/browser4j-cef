@@ -42,7 +42,7 @@ __version__ = '0.16.2'
 
 
 def main(argv):
-  """Main program.
+  """Browser4jTest program.
 
   Arguments:
     argv: command-line arguments, such as sys.argv (including the program name

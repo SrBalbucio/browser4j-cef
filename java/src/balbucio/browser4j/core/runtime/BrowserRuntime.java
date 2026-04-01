@@ -12,7 +12,7 @@ import java.nio.file.Path;
 
 public class BrowserRuntime {
     private static final Logger log = LoggerFactory.getLogger(BrowserRuntime.class);
-    
+
     private static BrowserRuntime instance;
     private final BrowserRuntimeConfiguration config;
     private boolean initialized = false;
@@ -29,19 +29,24 @@ public class BrowserRuntime {
         }
 
         validateOS();
-        
+
         instance = new BrowserRuntime(config);
         instance.doInit();
     }
+
+    public static boolean is64Bit;
+    public static boolean isWin;
+    public static boolean isLinux;
+    public static boolean isMac;
 
     private static void validateOS() {
         String osName = System.getProperty("os.name").toLowerCase();
         String osArch = System.getProperty("os.arch").toLowerCase();
 
-        boolean is64Bit = osArch.contains("64");
-        boolean isWin = osName.contains("win");
-        boolean isLinux = osName.contains("linux") || osName.contains("nix");
-        boolean isMac = osName.contains("mac");
+        is64Bit = osArch.contains("64");
+        isWin = osName.contains("win");
+        isLinux = osName.contains("linux") || osName.contains("nix");
+        isMac = osName.contains("mac");
 
         if (!is64Bit) {
             throw new UnsupportedOperationException("BrowserRuntime requires a 64-bit architecture.");
@@ -57,10 +62,16 @@ public class BrowserRuntime {
 
         log.info("Initializing BrowserRuntime...");
 
-        // Prepare native bundle (extract + set custom loader) BEFORE any JCEF startup call.
-        NativeBundle.PreparedNatives natives = NativeBundle.prepare(Path.of(config.getNativeCachePath()));
-        SystemBootstrap.setLoader(natives.loader);
-        
+        NativeBundle.PreparedNatives natives = null;
+
+        if (!config.isDisableNativeLoader()) {
+            // Prepare native bundle (extract + set custom loader) BEFORE any JCEF startup call.
+            natives = NativeBundle.prepare(Path.of(config.getNativeCachePath()));
+            SystemBootstrap.setLoader(natives.loader);
+        } else {
+            log.info("Browser4j is not managing natives. If the initialization fails, this is probably the reason.");
+        }
+
         if (!CefApp.startup(null)) {
             throw new RuntimeException("Failed to startup native JCEF components.");
         }
@@ -74,8 +85,8 @@ public class BrowserRuntime {
         settings.persist_session_cookies = config.isCookiesPersistent();
 
         // Point JCEF to the extracted native/runtime assets.
-        Path root = natives.extractedRoot;
-        if (natives.platform.os == NativeBundle.Os.WIN) {
+        Path root = natives != null ? natives.extractedRoot : Path.of(config.getNativeCachePath());
+        if (natives != null ? natives.platform.os == NativeBundle.Os.WIN : isWin) {
             settings.browser_subprocess_path = root.resolve("jcef_helper.exe").toAbsolutePath().toString();
             settings.resources_dir_path = root.toAbsolutePath().toString();
             settings.locales_dir_path = root.resolve("locales").toAbsolutePath().toString();
@@ -108,7 +119,7 @@ public class BrowserRuntime {
         }
         return instance.cefApp;
     }
-    
+
     public static BrowserRuntimeConfiguration getConfig() {
         if (instance == null) {
             throw new IllegalStateException("BrowserRuntime is not initialized.");

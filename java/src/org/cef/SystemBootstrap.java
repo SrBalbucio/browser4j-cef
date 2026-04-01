@@ -20,12 +20,7 @@ public class SystemBootstrap {
     /**
      * Default implementation is to call System.loadLibrary
      */
-    static private Loader loader_ = new Loader() {
-        @Override
-        public void loadLibrary(String libname) {
-            System.loadLibrary(libname);
-        }
-    };
+    static private Loader loader_ = libname -> System.loadLibrary(libname);
 
     static public void setLoader(Loader loader) {
         if (loader == null) {

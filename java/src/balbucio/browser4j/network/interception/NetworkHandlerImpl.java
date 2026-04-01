@@ -36,28 +36,36 @@ public class NetworkHandlerImpl implements NetworkModule {
     private final SecurityModuleImpl securityModule;
     private balbucio.browser4j.cache.interception.CacheInterceptor cacheInterceptor;
 
-    public NetworkHandlerImpl(CefClient client, MetricsTracker metricsTracker, SecurityModuleImpl securityModule) {
+    public NetworkHandlerImpl(CefClient client, MetricsTracker metricsTracker, SecurityModuleImpl securityModule, boolean enableInterception) {
         this.metricsTracker = metricsTracker;
         this.securityModule = securityModule;
-        
+
+        if (!enableInterception) return;
+
         client.addRequestHandler(new CefRequestHandlerAdapter() {
             @Override
             public boolean onBeforeBrowse(CefBrowser browser, CefFrame frame, CefRequest request, boolean user_gesture, boolean is_redirect) {
                 if (securityModule.isUrlBlocked(request.getURL())) {
-                    return true; 
+                    return true;
                 }
-                return false; 
+                return false;
             }
 
             @Override
             public CefResourceRequestHandler getResourceRequestHandler(CefBrowser browser, CefFrame frame, CefRequest request, boolean isNavigation, boolean isDownload, String requestInitiator, org.cef.misc.BoolRef disableDefaultHandling) {
+                // Return null when there is nothing to intercept so Chromium handles the request
+                // natively without any Java overhead or risk of interference.
+                if (cacheInterceptor == null && requestHandlers.isEmpty()) {
+                    return null;
+                }
                 return new CefResourceRequestHandlerAdapter() {
 
                     @Override
                     public boolean onBeforeResourceLoad(CefBrowser browser, CefFrame frame, CefRequest request) {
                         metricsTracker.markRequestStart(request.getIdentifier());
-                        
+
                         String url = request.getURL();
+                        System.out.println(url);
                         String method = request.getMethod();
 
                         try {
@@ -112,16 +120,16 @@ public class NetworkHandlerImpl implements NetworkModule {
 
                         for (RequestHandler handler : requestHandlers) {
                             RequestDecision decision = handler.handle(url, method);
-                            
+
                             if (!decision.isAllowed()) return true;
-                            
+
                             if (decision.getModifiedHeaders() != null) {
                                 Map<String, String> hdrs = new HashMap<>();
                                 request.getHeaderMap(hdrs);
                                 hdrs.putAll(decision.getModifiedHeaders());
                                 request.setHeaderMap(hdrs);
                             }
-                            
+
                             if (decision.getModifiedBody() != null) {
                                 CefPostData postData = CefPostData.create();
                                 CefPostDataElement element = CefPostDataElement.create();
@@ -151,7 +159,12 @@ public class NetworkHandlerImpl implements NetworkModule {
 
                     @Override
                     public CefResourceHandler getResourceHandler(CefBrowser browser, CefFrame frame, CefRequest request) {
-                        if (cacheInterceptor != null) {
+                        // Never intercept main-frame navigation requests — they must use
+                        // Chromium's native network stack (cookies, auth, HTTP/2, QUIC).
+                        // Intercepting navigation through Java HttpClient causes silent
+                        // ERR_ABORTED failures (swallowed by the -3 check in onLoadError)
+                        // which manifests as loadURL() appearing to do nothing.
+                        if (!isNavigation && cacheInterceptor != null) {
                             CefResourceHandler handler = cacheInterceptor.getResourceHandler(browser, frame, request);
                             if (handler != null) return handler;
                         }

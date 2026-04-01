@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'balbucio.browser4j'
-version = '1.0.0'
+version = '1.0.1'
 
 java {
   // Ant/scripts historically compiled as Java 8 bytecode.

@@ -39,16 +39,27 @@ public class CachedResourceHandler extends CefResourceHandlerAdapter {
     @Override
     public void getResponseHeaders(CefResponse response, IntRef response_length, StringRef redirectUrl) {
         response.setStatus(entry.getStatus());
-        response.setMimeType(entry.getMimeType());
+        response.setMimeType(normalizeMimeType(entry.getMimeType()));
         
         // Restore cached headers
         Map<String, String> hdrs = entry.getHeaders();
+        String contentTypeHeader = null;
         if (hdrs != null) {
+            contentTypeHeader = hdrs.entrySet().stream()
+                    .filter(e -> e.getKey().equalsIgnoreCase("Content-Type"))
+                    .map(Map.Entry::getValue)
+                    .findFirst()
+                    .orElse(null);
+
             hdrs.forEach((k, v) -> {
-                if (!k.equalsIgnoreCase("Content-Length")) {
+                if (!k.equalsIgnoreCase("Content-Length") && !k.equalsIgnoreCase("Content-Type")) {
                     response.setHeaderByName(k, v, true);
                 }
             });
+        }
+
+        if (contentTypeHeader != null && !contentTypeHeader.isBlank()) {
+            response.setHeaderByName("Content-Type", contentTypeHeader, true);
         }
         
         response.setHeaderByName("X-Cache-Status", "HIT", true);
@@ -72,5 +83,16 @@ public class CachedResourceHandler extends CefResourceHandlerAdapter {
     @Override
     public void cancel() {
         data = null;
+    }
+
+    private static String normalizeMimeType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return "application/octet-stream";
+        }
+
+        int separator = contentType.indexOf(';');
+        String base = separator >= 0 ? contentType.substring(0, separator) : contentType;
+        base = base.trim();
+        return base.isEmpty() ? "application/octet-stream" : base;
     }
 }
