@@ -3,6 +3,10 @@
 
 O **Browser4j** é uma biblioteca Java robusta projetada para embutir um navegador avançado baseado no **Chromium (via JCEF)** em aplicações Swing ou AWT, com foco em controle de rede, performance de cache e gerenciamento de perfis.
 
+> [!IMPORTANT]
+> O projeto é atualmente um **work in progress** e está em fase de desenvolvimento ativo. A API, funcionalidades e estrutura podem sofrer mudanças significativas à medida que avançamos. Fique atento às atualizações e sinta-se à vontade para contribuir ou reportar issues!
+
+
 ---
 
 ## ✨ Principais Funcionalidades
