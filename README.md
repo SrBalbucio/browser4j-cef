@@ -29,8 +29,8 @@ O **Browser4j** é uma biblioteca Java robusta projetada para embutir um navegad
 ```xml
 <dependency>
     <groupId>balbucio.browser4j</groupId>
-    <artifactId>browser4j</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <artifactId>browser4j-cef</artifactId>
+    <version>1.0.0</version>
 </dependency>
 ```
 
