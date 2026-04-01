@@ -44,18 +44,10 @@ import java.nio.file.Path;
 ProfileManager.initialize(Path.of(System.getProperty("user.home"), ".minha-app"));
 
 // Ativar o perfil desejado → configura o cache_path antes do Chromium inicializar
-        ProfileManager.
-
-get().
-
-activateProfile("perfil-padrao");
+ProfileManager.get().activateProfile("perfil-padrao");
 
 // Inicializar normalmente — cachePath será configurado automaticamente
-BrowserRuntime.
-
-init(BrowserRuntimeConfiguration.builder().
-
-build());
+BrowserRuntime.init(BrowserRuntimeConfiguration.builder().build());
 ```
 
 ---

@@ -1,5 +1,7 @@
 import balbucio.browser4j.browser.api.BrowserOptions;
 import balbucio.browser4j.browser.api.CefBrowserImpl;
+import balbucio.browser4j.browser.profile.ProfileManager;
+import balbucio.browser4j.browser.profile.ProfilePreferences;
 import balbucio.browser4j.cache.config.CacheConfig;
 import balbucio.browser4j.core.config.BrowserRuntimeConfiguration;
 import balbucio.browser4j.core.runtime.BrowserRuntime;
@@ -18,6 +20,17 @@ public class Browser4jTest extends JFrame {
             File userDataPath = new File("build/browser/user");
             userDataPath.mkdirs();
 
+            ProfileManager.initialize(userDataPath.toPath());
+            ProfileManager profileManager = ProfileManager.get();
+
+            profileManager.register("srbalbucio", "SrBalbucio", ProfilePreferences.builder()
+                    .theme(ProfilePreferences.Theme.LIGHT)
+                    .timezone("America/Sao_Paulo")
+                    .language("pt-BR")
+                    .build());
+
+            profileManager.activateProfile("srbalbucio");
+
             BrowserRuntime.init(BrowserRuntimeConfiguration.builder()
                     .enableGPU(true)
                     .enableMediaStream(true)
@@ -31,6 +44,7 @@ public class Browser4jTest extends JFrame {
                     .userDataPath(userDataPath.getAbsolutePath())
                     .nativeCachePath(new File("binary_distrib/win64/bin/lib/win64").getAbsolutePath())
                     .disableNativeLoader()
+                    .cacheConfig(CacheConfig.builder().enabled(true).sharedCacheEnabled(true).maxEntries(10000).maxCacheSizeBytes(99999999).build())
                     .build());
 
             new Browser4jTest();
@@ -47,8 +61,7 @@ public class Browser4jTest extends JFrame {
         this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
         CefBrowserImpl browser = (CefBrowserImpl) CefBrowserImpl.create(BrowserRuntime.getCefApp(), BrowserOptions.builder()
-                        .cacheConfig(CacheConfig.builder().enabled(true).sharedCacheEnabled(true).maxEntries(10000).maxCacheSizeBytes(99999999).build())
-                        .initialUrl("https://google.com")
+                .initialUrl("https://google.com")
                 .build());
 
         this.add(browser.getView().getUIComponent(), BorderLayout.CENTER);

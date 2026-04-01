@@ -1,6 +1,7 @@
 package balbucio.browser4j.browser.profile;
 
 import org.cef.browser.CefRequestContext;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -50,7 +51,9 @@ public class ProfileManager {
 
     private static final Logger LOG = Logger.getLogger(ProfileManager.class.getName());
 
-    /** System property set by activateProfile() so BrowserRuntimeConfiguration can read it. */
+    /**
+     * System property set by activateProfile() so BrowserRuntimeConfiguration can read it.
+     */
     public static final String CACHE_PATH_PROPERTY = "browser4j.profile.cachePath";
 
     private static final String PROFILES_DIR = "profiles";
@@ -95,8 +98,13 @@ public class ProfileManager {
      * Registers (or updates) a profile with the given preferences and saves {@code profile.json}.
      * Safe to call on an existing profile — only the metadata and preferences are rewritten.
      */
-    public ProfileEntry register(String profileId, String displayName, ProfilePreferences preferences) {
+    public @Nullable ProfileEntry register(String profileId, String displayName, ProfilePreferences preferences) {
         Path profileDir = profileDir(profileId);
+
+        if (profileDir.toFile().exists()) {
+            return load(profileId).orElse(null);
+        }
+
         String absPath = profileDir.toAbsolutePath().toString();
         ProfileEntry entry = new ProfileEntry(profileId, displayName, absPath, preferences);
         try {
@@ -123,7 +131,9 @@ public class ProfileManager {
         }
     }
 
-    /** Lists all profiles found in the profiles root directory. */
+    /**
+     * Lists all profiles found in the profiles root directory.
+     */
     public List<ProfileEntry> list() {
         List<ProfileEntry> entries = new ArrayList<>();
         Path root = profilesRoot();
@@ -143,13 +153,17 @@ public class ProfileManager {
         return entries;
     }
 
-    /** Deletes the profile directory and all its contents from disk. */
+    /**
+     * Deletes the profile directory and all its contents from disk.
+     */
     public void delete(String profileId) {
         deleteRecursive(profileDir(profileId));
         LOG.info("[Browser4J] Profile deleted: " + profileId);
     }
 
-    /** Overwrites the preferences of an existing profile and re-saves {@code profile.json}. */
+    /**
+     * Overwrites the preferences of an existing profile and re-saves {@code profile.json}.
+     */
     public ProfileEntry updatePreferences(String profileId, ProfilePreferences preferences) {
         ProfileEntry existing = load(profileId)
                 .orElseThrow(() -> new IllegalArgumentException("Profile not found: " + profileId));
@@ -174,19 +188,29 @@ public class ProfileManager {
     public void activateProfile(String profileId) {
         this.activeProfileId = profileId;
         Path dir = profileDir(profileId);
-        try { Files.createDirectories(dir); } catch (IOException e) {
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException e) {
             throw new RuntimeException("Cannot create profile directory: " + dir, e);
         }
         System.setProperty(CACHE_PATH_PROPERTY, dir.toAbsolutePath().toString());
         LOG.info("[Browser4J] Profile activated: " + profileId + " → " + dir.toAbsolutePath());
     }
 
-    /** Returns the currently active profile ID, or null if none was activated. */
+    /**
+     * Returns the currently active profile ID, or null if none was activated.
+     */
     public String getActiveProfileId() {
         return activeProfileId;
     }
 
-    /** Returns the absolute path of the currently active profile directory, or null. */
+    public boolean hasActiveProfile() {
+        return getActiveProfileId() != null;
+    }
+
+    /**
+     * Returns the absolute path of the currently active profile directory, or null.
+     */
     public Path getActiveProfileDir() {
         return activeProfileId != null ? profileDir(activeProfileId) : null;
     }
@@ -208,8 +232,8 @@ public class ProfileManager {
 
         int colorScheme = switch (prefs.getTheme()) {
             case LIGHT -> 1;
-            case DARK  -> 2;
-            default    -> 0;
+            case DARK -> 2;
+            default -> 0;
         };
         safeSetPref(context, ProfilePreferences.PREF_THEME, colorScheme);
 
@@ -237,15 +261,20 @@ public class ProfileManager {
 //        }
     }
 
-    private Path profilesRoot() { return baseDir.resolve(PROFILES_DIR); }
-    private Path profileDir(String profileId) { return profilesRoot().resolve(profileId); }
+    private Path profilesRoot() {
+        return baseDir.resolve(PROFILES_DIR);
+    }
+
+    private Path profileDir(String profileId) {
+        return profilesRoot().resolve(profileId);
+    }
 
     private void deleteRecursive(Path dir) {
         if (!Files.exists(dir)) return;
         try (var walk = Files.walk(dir)) {
             walk.sorted(java.util.Comparator.reverseOrder())
-                .map(Path::toFile)
-                .forEach(java.io.File::delete);
+                    .map(Path::toFile)
+                    .forEach(java.io.File::delete);
         } catch (IOException e) {
             LOG.warning("[Browser4J] Could not fully delete: " + dir);
         }

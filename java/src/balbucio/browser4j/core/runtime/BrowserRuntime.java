@@ -1,9 +1,18 @@
 package balbucio.browser4j.core.runtime;
 
+import balbucio.browser4j.browser.profile.ProfileManager;
+import balbucio.browser4j.cache.api.CacheManager;
+import balbucio.browser4j.cache.api.CacheManagerImpl;
 import balbucio.browser4j.core.config.BrowserRuntimeConfiguration;
 import balbucio.browser4j.download.api.DownloadManager;
 import balbucio.browser4j.download.api.DownloadManagerImpl;
 import balbucio.browser4j.download.config.DownloadConfig;
+import balbucio.browser4j.history.api.HistoryManager;
+import balbucio.browser4j.history.api.HistoryManagerImpl;
+import balbucio.browser4j.history.service.AutocompleteService;
+import balbucio.browser4j.security.permissions.PermissionModule;
+import balbucio.browser4j.security.permissions.PermissionModuleImpl;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.cef.CefApp;
@@ -13,7 +22,9 @@ import balbucio.browser4j.core.process.BrowserProcessManager;
 
 import java.nio.file.Path;
 
+@Getter
 public class BrowserRuntime {
+
     private static final Logger log = LoggerFactory.getLogger(BrowserRuntime.class);
 
     private static BrowserRuntime instance;
@@ -21,6 +32,10 @@ public class BrowserRuntime {
     private boolean initialized = false;
     private CefApp cefApp;
     private DownloadManager downloadManager;
+    private HistoryManager historyManager;
+    private AutocompleteService autocompleteService;
+    private CacheManager cacheManager;
+    private PermissionModule permissionModule;
 
     private BrowserRuntime(BrowserRuntimeConfiguration config) {
         this.config = config;
@@ -103,8 +118,19 @@ public class BrowserRuntime {
         // Custom config via Process Manager
         BrowserProcessManager.configureArgs(settings, config);
 
+        Path browserUserDataPath = Path.of(config.getUserDataPath());
+        Path profilePath = browserUserDataPath;
+
+        if (ProfileManager.get() != null && ProfileManager.get().hasActiveProfile()) {
+            profilePath = ProfileManager.get().getActiveProfileDir();
+        }
+
         cefApp = CefApp.getInstance(settings);
         downloadManager = new DownloadManagerImpl(config.getDownloadConfig());
+        historyManager = new HistoryManagerImpl(profilePath);
+        autocompleteService = new AutocompleteService(historyManager);
+        cacheManager = new CacheManagerImpl(config.getCacheConfig(), browserUserDataPath);
+        permissionModule = new PermissionModuleImpl(profilePath);
         initialized = true;
         log.info("BrowserRuntime initialized successfully.");
     }
@@ -114,6 +140,8 @@ public class BrowserRuntime {
             log.info("Shutting down BrowserRuntime...");
             CefApp.getInstance().dispose();
             instance.downloadManager = null;
+            instance.historyManager = null;
+            instance.autocompleteService = null;
             instance.initialized = false;
             instance = null;
         }
@@ -142,5 +170,35 @@ public class BrowserRuntime {
 
     public static DownloadManagerImpl getDownloadManagerImpl() {
         return (DownloadManagerImpl) getDownloadManager();
+    }
+
+    public static HistoryManager getHistoryManager() {
+        if (instance == null || !instance.initialized || instance.historyManager == null) {
+            throw new IllegalStateException("BrowserRuntime is not initialized. Call init() first.");
+        }
+        return instance.historyManager;
+    }
+
+    public static AutocompleteService getAutocompleteService() {
+        if (instance == null || !instance.initialized || instance.autocompleteService == null) {
+            throw new IllegalStateException("BrowserRuntime is not initialized. Call init() first.");
+        }
+        return instance.autocompleteService;
+    }
+
+    public static CacheManager getCacheManager() {
+        if (instance == null || !instance.initialized || instance.cacheManager == null) {
+            throw new IllegalStateException("BrowserRuntime is not initialized. Call init() first.");
+        }
+
+        return instance.cacheManager;
+    }
+
+    public static PermissionModule getPermissionModule(){
+        if (instance == null || !instance.initialized || instance.permissionModule == null) {
+            throw new IllegalStateException("BrowserRuntime is not initialized. Call init() first.");
+        }
+
+        return instance.permissionModule;
     }
 }

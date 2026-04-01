@@ -49,7 +49,6 @@ import balbucio.browser4j.devtools.DevToolsModule;
 import balbucio.browser4j.streaming.Frame;
 import org.cef.browser.CefRequestContext;
 import balbucio.browser4j.history.api.HistoryManager;
-import balbucio.browser4j.history.api.HistoryManagerImpl;
 import balbucio.browser4j.history.service.AutocompleteService;
 import balbucio.browser4j.network.cookies.CookieManager;
 import balbucio.browser4j.security.profile.FingerprintInjector;
@@ -158,25 +157,16 @@ public class CefBrowserImpl implements Browser {
         BrowserRuntime.getDownloadManagerImpl().registerProfileRoot(profileId, downloadRoot);
         this.mediaModule = new MediaModuleImpl(this, this.jsBridge, this.downloadManager);
 
-        // History Setup - Shared with profile dir if possible
-        Path historyPath = Path.of(System.getProperty("user.home"), ".browser4j");
-        if (options != null && options.getSession() != null && options.getSession().getProfile() != null) {
-            ProfileEntry pe = options.getSession().getProfile().getProfileEntry();
-            if (pe != null && pe.getProfilePath() != null) {
-                historyPath = Path.of(pe.getProfilePath());
-            }
-        }
-        this.historyManager = new HistoryManagerImpl(historyPath);
-        this.autocompleteService = new AutocompleteService(this.historyManager);
+        // History Setup — shared runtime-level manager; keep local path for cache & permissions
+        this.historyManager = BrowserRuntime.getHistoryManager();
+        this.autocompleteService = BrowserRuntime.getAutocompleteService();
+        this.permissionModule = BrowserRuntime.getPermissionModule();
 
         // Initialize Cache
-        Path cachePath = historyPath.resolve("cache");
-        this.cacheManager = new CacheManagerImpl(options.getCacheConfig(), cachePath);
-        if (options.getCacheConfig().isEnabled()) {
-            this.networkHandler.setCacheInterceptor(new CacheInterceptor(cacheManager));
+        this.cacheManager = BrowserRuntime.getCacheManager();
+        if (BrowserRuntime.getConfig().getCacheConfig().isEnabled()) {
+            this.networkHandler.setCacheInterceptor(new CacheInterceptor(BrowserRuntime.getCacheManager()));
         }
-
-        this.permissionModule = new PermissionModuleImpl(historyPath);
 
         // Life span handler is registered in setupHandlers() — not here — so that
         // onAfterCreated is captured before any other handler can fire.
@@ -247,7 +237,7 @@ public class CefBrowserImpl implements Browser {
         client.addLifeSpanHandler(new CefLifeSpanHandlerAdapter() {
             @Override
             public boolean onBeforePopup(org.cef.browser.CefBrowser browser, org.cef.browser.CefFrame frame,
-                    String target_url, String target_frame_name) {
+                                         String target_url, String target_frame_name) {
                 return securityModule != null && securityModule.isPopupBlocked(target_url);
             }
 

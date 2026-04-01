@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+import balbucio.browser4j.browser.api.BrowserOptions;
+import balbucio.browser4j.cache.config.CacheConfig;
 import balbucio.browser4j.download.config.DownloadConfig;
 import balbucio.browser4j.observability.BrowserMetric;
 import lombok.Getter;
@@ -38,6 +40,7 @@ public class BrowserRuntimeConfiguration {
     private final String webrtcIPHandlingPolicy;
     private final String autoPlayPolicy;
     private final DownloadConfig downloadConfig;
+    private final CacheConfig cacheConfig;
 
     private BrowserRuntimeConfiguration(Builder builder) {
         this.cachePath = builder.cachePath;
@@ -66,6 +69,7 @@ public class BrowserRuntimeConfiguration {
         this.webrtcIPHandlingPolicy = builder.webrtcIPHandlingPolicy;
         this.autoPlayPolicy = builder.autoPlayPolicy;
         this.downloadConfig = builder.downloadConfig;
+        this.cacheConfig  = builder.cacheConfig;
     }
 
     public static Builder builder() {
@@ -103,9 +107,15 @@ public class BrowserRuntimeConfiguration {
         private String webrtcIPHandlingPolicy = "default";
         private String autoPlayPolicy = "no-user-gesture-required";
         private DownloadConfig downloadConfig;
+        private CacheConfig cacheConfig;
 
         public Builder downloadConfig(DownloadConfig downloadConfig) {
             this.downloadConfig = downloadConfig;
+            return this;
+        }
+
+        public Builder cacheConfig(CacheConfig cacheConfig) {
+            this.cacheConfig = cacheConfig;
             return this;
         }
 
@@ -138,7 +148,7 @@ public class BrowserRuntimeConfiguration {
             this.enableSandbox = enableSandbox;
             return this;
         }
-        
+
         public Builder osrEnabled(boolean osrEnabled) {
             this.osrEnabled = osrEnabled;
             return this;
@@ -240,6 +250,18 @@ public class BrowserRuntimeConfiguration {
         }
 
         public BrowserRuntimeConfiguration build() {
+
+            if (cacheConfig == null) {
+                cacheConfig = CacheConfig.builder()
+                        .enabled(false)
+                        .maxCacheSizeBytes(1024L * 1024 * 1024)
+                        .build();
+            }
+
+            if (downloadConfig == null) {
+                downloadConfig = DownloadConfig.builder().build();
+            }
+
             return new BrowserRuntimeConfiguration(this);
         }
     }
