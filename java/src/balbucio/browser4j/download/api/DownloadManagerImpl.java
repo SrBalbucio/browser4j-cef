@@ -29,27 +29,45 @@ public class DownloadManagerImpl implements DownloadManager {
 
     private static final Logger LOG = Logger.getLogger(DownloadManagerImpl.class.getName());
 
-    private final DownloadConfig       config;
-    private final DownloadSanitizer    sanitizer;
-    private final DownloadHistoryStore historyStore;
-    private final Path                 downloadRoot;
+    private final DownloadConfig config;
+    private final DownloadSanitizer sanitizer;
+    private final Path defaultDownloadRoot;
+    private final Map<String, Path> profileDownloadRoots = new ConcurrentHashMap<>();
+    private final Map<String, DownloadHistoryStore> historyStores = new ConcurrentHashMap<>();
 
-    /** cefDownloadId (int) → DownloadTask */
-    private final Map<Integer, DownloadTask>  activeById    = new ConcurrentHashMap<>();
-    /** downloadId (UUID string) → cefDownloadId */
-    private final Map<String, Integer>        idMapping     = new ConcurrentHashMap<>();
-    /** downloadId → callback for pause/resume/cancel */
-    private final Map<Integer, CefDownloadItemCallback> callbacks = new ConcurrentHashMap<>();
+    /**
+     * nativeDownloadKey(browserId:cefDownloadId) -> DownloadTask
+     */
+    private final Map<String, DownloadTask> activeById = new ConcurrentHashMap<>();
+    /**
+     * downloadId (UUID string) -> nativeDownloadKey(browserId:cefDownloadId)
+     */
+    private final Map<String, String> idMapping = new ConcurrentHashMap<>();
+    /**
+     * nativeDownloadKey(browserId:cefDownloadId) -> callback for pause/resume/cancel
+     */
+    private final Map<String, CefDownloadItemCallback> callbacks = new ConcurrentHashMap<>();
 
-    private final Semaphore                concurrencySlots;
+    private final Semaphore concurrencySlots;
     private final List<DownloadEventListener> eventListeners = new CopyOnWriteArrayList<>();
 
-    public DownloadManagerImpl(DownloadConfig config, Path downloadRoot) {
-        this.config           = config;
-        this.sanitizer        = new DownloadSanitizer(config);
-        this.downloadRoot     = downloadRoot;
-        this.historyStore     = new DownloadHistoryStore(downloadRoot);
+    public DownloadManagerImpl(DownloadConfig config) {
+        Path downloadRoot = config.getDefaultDownloadDir();
+        this.config = config;
+        this.sanitizer = new DownloadSanitizer(config);
+        this.defaultDownloadRoot = downloadRoot;
         this.concurrencySlots = new Semaphore(config.getMaxConcurrentDownloads(), true);
+        registerProfileRoot("global", downloadRoot);
+    }
+
+    /**
+     * Registers/updates the download root used by a profile in this shared manager.
+     */
+    public void registerProfileRoot(String profileId, Path profileDownloadRoot) {
+        String normalizedProfile = profileId != null ? profileId : "global";
+        Path resolvedRoot = profileDownloadRoot != null ? profileDownloadRoot : defaultDownloadRoot;
+        profileDownloadRoots.put(normalizedProfile, resolvedRoot);
+        historyStores.computeIfAbsent(normalizedProfile, p -> new DownloadHistoryStore(resolvedRoot));
     }
 
     // ---- Called from DownloadHandlerImpl (JCEF callbacks) ----
@@ -61,9 +79,9 @@ public class DownloadManagerImpl implements DownloadManager {
      * @return the created DownloadTask, or null if blocked
      */
     public DownloadTask handleBeforeDownload(String url, String suggestedName, String mimeType,
-                                              long totalBytes, String profileId,
-                                              int cefDownloadId,
-                                              CefBeforeDownloadCallback callback) {
+                                             long totalBytes, String profileId,
+                                             int browserId, int cefDownloadId,
+                                             CefBeforeDownloadCallback callback) {
         // 1. Security validation
         DownloadSanitizer.ValidationResult val = sanitizer.validate(url, suggestedName, mimeType, totalBytes);
         if (!val.isAllowed()) {
@@ -74,6 +92,8 @@ public class DownloadManagerImpl implements DownloadManager {
         }
 
         // 2. Duplicate detection (same URL + profileId already active/queued)
+        String nativeKey = nativeKey(browserId, cefDownloadId);
+
         boolean duplicate = activeById.values().stream()
                 .anyMatch(t -> t.getUrl().equals(url) && t.getProfileId().equals(profileId)
                         && (t.getStatus() == DownloadStatus.IN_PROGRESS || t.getStatus() == DownloadStatus.QUEUED));
@@ -86,7 +106,9 @@ public class DownloadManagerImpl implements DownloadManager {
         // 3. Resolve destination path
         Path dir = resolveDownloadDir(profileId, mimeType, val.getSanitizedName());
         Path dest = sanitizer.resolveDestination(dir, val.getSanitizedName());
-        try { Files.createDirectories(dest.getParent()); } catch (Exception e) {
+        try {
+            Files.createDirectories(dest.getParent());
+        } catch (Exception e) {
             LOG.warning("[Download] Cannot create dir: " + dest.getParent());
         }
 
@@ -105,18 +127,18 @@ public class DownloadManagerImpl implements DownloadManager {
                 .profileId(profileId)
                 .build();
 
-        activeById.put(cefDownloadId, task);
-        idMapping.put(task.getDownloadId(), cefDownloadId);
+        activeById.put(nativeKey, task);
+        idMapping.put(task.getDownloadId(), nativeKey);
 
-        historyStore.save(task);
+        historyStore(profileId).save(task);
         fireQueued(task);
 
         // 5. Try to acquire concurrency slot
         if (concurrencySlots.tryAcquire()) {
             // Slot available — start immediately
             DownloadTask started = task.toBuilder().status(DownloadStatus.IN_PROGRESS).updatedAt(Instant.now()).build();
-            activeById.put(cefDownloadId, started);
-            historyStore.save(started);
+            activeById.put(nativeKey, started);
+            historyStore(profileId).save(started);
             fireStart(started);
             callback.Continue(dest.toAbsolutePath().toString(), false);
         } else {
@@ -125,14 +147,14 @@ public class DownloadManagerImpl implements DownloadManager {
             CompletableFuture.runAsync(() -> {
                 try {
                     concurrencySlots.acquire();
-                    DownloadTask queued = activeById.get(cefDownloadId);
+                    DownloadTask queued = activeById.get(nativeKey);
                     if (queued == null || queued.getStatus() == DownloadStatus.CANCELED) {
                         concurrencySlots.release();
                         return;
                     }
                     DownloadTask started = queued.toBuilder().status(DownloadStatus.IN_PROGRESS).updatedAt(Instant.now()).build();
-                    activeById.put(cefDownloadId, started);
-                    historyStore.save(started);
+                    activeById.put(nativeKey, started);
+                    historyStore(profileId).save(started);
                     fireStart(started);
                     callback.Continue(dest.toAbsolutePath().toString(), false);
                 } catch (InterruptedException e) {
@@ -147,20 +169,21 @@ public class DownloadManagerImpl implements DownloadManager {
      * Called by {@code DownloadHandlerImpl.onDownloadUpdated}.
      * Updates task progress and dispatches events.
      */
-    public void handleDownloadUpdated(int cefDownloadId, long receivedBytes, long totalBytes,
-                                       boolean isComplete, boolean isCanceled, boolean isInProgress,
-                                       boolean isInterrupted, CefDownloadItemCallback callback) {
-        DownloadTask current = activeById.get(cefDownloadId);
+    public void handleDownloadUpdated(int browserId, int cefDownloadId, long receivedBytes, long totalBytes,
+                                      boolean isComplete, boolean isCanceled, boolean isInProgress,
+                                      boolean isInterrupted, CefDownloadItemCallback callback) {
+        String nativeKey = nativeKey(browserId, cefDownloadId);
+        DownloadTask current = activeById.get(nativeKey);
         if (current == null) return;
 
-        callbacks.put(cefDownloadId, callback);
+        callbacks.put(nativeKey, callback);
 
         DownloadStatus newStatus;
-        if (isCanceled)      newStatus = DownloadStatus.CANCELED;
+        if (isCanceled) newStatus = DownloadStatus.CANCELED;
         else if (isInterrupted) newStatus = DownloadStatus.FAILED;
         else if (isComplete) newStatus = DownloadStatus.COMPLETED;
-        else                 newStatus = current.getStatus() == DownloadStatus.PAUSED
-                                          ? DownloadStatus.PAUSED : DownloadStatus.IN_PROGRESS;
+        else newStatus = current.getStatus() == DownloadStatus.PAUSED
+                    ? DownloadStatus.PAUSED : DownloadStatus.IN_PROGRESS;
 
         DownloadTask updated = current.toBuilder()
                 .receivedBytes(receivedBytes)
@@ -169,56 +192,66 @@ public class DownloadManagerImpl implements DownloadManager {
                 .updatedAt(Instant.now())
                 .build();
 
-        activeById.put(cefDownloadId, updated);
+        activeById.put(nativeKey, updated);
 
         switch (newStatus) {
             case IN_PROGRESS -> fireProgress(updated);
-            case COMPLETED   -> { fireComplete(updated); finishSlot(cefDownloadId); }
-            case CANCELED    -> { fireCanceled(updated); finishSlot(cefDownloadId); }
-            case FAILED      -> { fireError(updated, "Download interrupted"); finishSlot(cefDownloadId); }
-            default -> {}
+            case COMPLETED -> {
+                fireComplete(updated);
+                finishSlot(nativeKey);
+            }
+            case CANCELED -> {
+                fireCanceled(updated);
+                finishSlot(nativeKey);
+            }
+            case FAILED -> {
+                fireError(updated, "Download interrupted");
+                finishSlot(nativeKey);
+            }
+            default -> {
+            }
         }
 
-        historyStore.save(updated);
+        historyStore(updated.getProfileId()).save(updated);
     }
 
     // ---- DownloadManager API ----
 
     @Override
     public void pause(String downloadId) {
-        Integer cefId = idMapping.get(downloadId);
-        if (cefId == null) return;
-        CefDownloadItemCallback cb = callbacks.get(cefId);
+        String nativeKey = idMapping.get(downloadId);
+        if (nativeKey == null) return;
+        CefDownloadItemCallback cb = callbacks.get(nativeKey);
         if (cb != null) cb.pause();
-        DownloadTask current = activeById.get(cefId);
+        DownloadTask current = activeById.get(nativeKey);
         if (current != null) {
             DownloadTask paused = current.toBuilder().status(DownloadStatus.PAUSED).updatedAt(Instant.now()).build();
-            activeById.put(cefId, paused);
-            historyStore.save(paused);
+            activeById.put(nativeKey, paused);
+            historyStore(paused.getProfileId()).save(paused);
             firePaused(paused);
         }
     }
 
     @Override
     public void resume(String downloadId) {
-        Integer cefId = idMapping.get(downloadId);
-        if (cefId == null) return;
-        CefDownloadItemCallback cb = callbacks.get(cefId);
+        String nativeKey = idMapping.get(downloadId);
+        if (nativeKey == null) return;
+        CefDownloadItemCallback cb = callbacks.get(nativeKey);
         if (cb != null) cb.resume();
-        DownloadTask current = activeById.get(cefId);
+        DownloadTask current = activeById.get(nativeKey);
         if (current != null) {
             DownloadTask resumed = current.toBuilder().status(DownloadStatus.IN_PROGRESS).updatedAt(Instant.now()).build();
-            activeById.put(cefId, resumed);
-            historyStore.save(resumed);
+            activeById.put(nativeKey, resumed);
+            historyStore(resumed.getProfileId()).save(resumed);
             fireResumed(resumed);
         }
     }
 
     @Override
     public void cancel(String downloadId) {
-        Integer cefId = idMapping.get(downloadId);
-        if (cefId == null) return;
-        CefDownloadItemCallback cb = callbacks.get(cefId);
+        String nativeKey = idMapping.get(downloadId);
+        if (nativeKey == null) return;
+        CefDownloadItemCallback cb = callbacks.get(nativeKey);
         if (cb != null) cb.cancel();
         // Status update will come from onDownloadUpdated(isCanceled=true)
     }
@@ -227,7 +260,10 @@ public class DownloadManagerImpl implements DownloadManager {
     public void retry(String downloadId) {
         // Find task in history and re-issue a browser load to trigger re-download
         DownloadTask task = get(downloadId);
-        if (task == null) { LOG.warning("[Download] Retry: task not found " + downloadId); return; }
+        if (task == null) {
+            LOG.warning("[Download] Retry: task not found " + downloadId);
+            return;
+        }
         if (task.getRetryCount() >= config.getMaxRetries()) {
             LOG.warning("[Download] Max retries reached for " + downloadId);
             return;
@@ -238,7 +274,7 @@ public class DownloadManagerImpl implements DownloadManager {
         DownloadTask reset = task.toBuilder()
                 .status(DownloadStatus.QUEUED).receivedBytes(0)
                 .retryCount(task.getRetryCount() + 1).updatedAt(Instant.now()).build();
-        historyStore.save(reset);
+        historyStore(reset.getProfileId()).save(reset);
     }
 
     @Override
@@ -248,7 +284,7 @@ public class DownloadManagerImpl implements DownloadManager {
         result.addAll(activeById.values().stream()
                 .filter(t -> t.getProfileId().equals(profileId)).collect(Collectors.toList()));
         // Historical entries (completed/canceled/failed)
-        historyStore.loadAll().stream()
+        historyStore(profileId).loadAll().stream()
                 .filter(t -> t.getProfileId().equals(profileId))
                 .filter(t -> activeById.values().stream().noneMatch(a -> a.getDownloadId().equals(t.getDownloadId())))
                 .forEach(result::add);
@@ -262,14 +298,19 @@ public class DownloadManagerImpl implements DownloadManager {
         Optional<DownloadTask> active = activeById.values().stream()
                 .filter(t -> t.getDownloadId().equals(downloadId)).findFirst();
         if (active.isPresent()) return active.get();
-        // Fall back to history
-        return historyStore.loadAll().stream()
-                .filter(t -> t.getDownloadId().equals(downloadId)).findFirst().orElse(null);
+        // Fall back to all profile histories
+        for (DownloadHistoryStore store : historyStores.values()) {
+            Optional<DownloadTask> fromStore = store.loadAll().stream()
+                    .filter(t -> t.getDownloadId().equals(downloadId))
+                    .findFirst();
+            if (fromStore.isPresent()) return fromStore.get();
+        }
+        return null;
     }
 
     @Override
     public void clearHistory(String profileId) {
-        historyStore.clearByProfile(profileId);
+        historyStore(profileId).clearByProfile(profileId);
     }
 
     @Override
@@ -286,36 +327,80 @@ public class DownloadManagerImpl implements DownloadManager {
 
     // ---- Internal helpers ----
 
-    private void finishSlot(int cefDownloadId) {
-        activeById.remove(cefDownloadId);
-        callbacks.remove(cefDownloadId);
+    private void finishSlot(String nativeDownloadKey) {
+        DownloadTask task = activeById.remove(nativeDownloadKey);
+        if (task != null) {
+            idMapping.remove(task.getDownloadId());
+        }
+        callbacks.remove(nativeDownloadKey);
         concurrencySlots.release();
     }
 
     private Path resolveDownloadDir(String profileId, String mimeType, String fileName) {
-        Path base = downloadRoot;
+        Path base = profileDownloadRoots.getOrDefault(profileId, defaultDownloadRoot);
         if (config.isOrganizeByCategory()) {
             DownloadCategory cat = DownloadCategory.fromMimeType(mimeType);
             if (cat == DownloadCategory.OTHER) cat = DownloadCategory.fromExtension(fileName);
             String subdir = switch (cat) {
-                case IMAGE    -> "images";
-                case VIDEO    -> "videos";
+                case IMAGE -> "images";
+                case VIDEO -> "videos";
                 case DOCUMENT -> "documents";
-                default       -> "others";
+                default -> "others";
             };
             base = base.resolve(subdir);
         }
         return base;
     }
 
+    private DownloadHistoryStore historyStore(String profileId) {
+        String normalized = profileId != null ? profileId : "global";
+        Path root = profileDownloadRoots.getOrDefault(normalized, defaultDownloadRoot);
+        return historyStores.computeIfAbsent(normalized, p -> new DownloadHistoryStore(root));
+    }
+
+    private String nativeKey(int browserId, int cefDownloadId) {
+        return browserId + ":" + cefDownloadId;
+    }
+
     // ---- Event fire helpers ----
-    private void fireQueued(DownloadTask t)              { eventListeners.forEach(l -> l.onDownloadQueued(t)); }
-    private void fireStart(DownloadTask t)               { LOG.info("[Download] Start: " + t.getUrl() + " profile=" + t.getProfileId()); eventListeners.forEach(l -> l.onDownloadStart(t)); }
-    private void fireProgress(DownloadTask t)            { eventListeners.forEach(l -> l.onDownloadProgress(t)); }
-    private void fireComplete(DownloadTask t)            { LOG.info("[Download] Complete: " + t.getFullPath()); eventListeners.forEach(l -> l.onDownloadComplete(t)); }
-    private void fireError(DownloadTask t, String msg)   { LOG.warning("[Download] Error: " + msg + " url=" + t.getUrl()); eventListeners.forEach(l -> l.onDownloadError(t, msg)); }
-    private void fireCanceled(DownloadTask t)            { LOG.info("[Download] Canceled: " + t.getUrl()); eventListeners.forEach(l -> l.onDownloadCanceled(t)); }
-    private void firePaused(DownloadTask t)              { eventListeners.forEach(l -> l.onDownloadPaused(t)); }
-    private void fireResumed(DownloadTask t)             { eventListeners.forEach(l -> l.onDownloadResumed(t)); }
-    private void fireBlocked(String url, String reason)  { LOG.warning("[Download] Blocked: " + reason + " url=" + url); eventListeners.forEach(l -> l.onDownloadBlocked(url, reason)); }
+    private void fireQueued(DownloadTask t) {
+        eventListeners.forEach(l -> l.onDownloadQueued(t));
+    }
+
+    private void fireStart(DownloadTask t) {
+        LOG.info("[Download] Start: " + t.getUrl() + " profile=" + t.getProfileId());
+        eventListeners.forEach(l -> l.onDownloadStart(t));
+    }
+
+    private void fireProgress(DownloadTask t) {
+        eventListeners.forEach(l -> l.onDownloadProgress(t));
+    }
+
+    private void fireComplete(DownloadTask t) {
+        LOG.info("[Download] Complete: " + t.getFullPath());
+        eventListeners.forEach(l -> l.onDownloadComplete(t));
+    }
+
+    private void fireError(DownloadTask t, String msg) {
+        LOG.warning("[Download] Error: " + msg + " url=" + t.getUrl());
+        eventListeners.forEach(l -> l.onDownloadError(t, msg));
+    }
+
+    private void fireCanceled(DownloadTask t) {
+        LOG.info("[Download] Canceled: " + t.getUrl());
+        eventListeners.forEach(l -> l.onDownloadCanceled(t));
+    }
+
+    private void firePaused(DownloadTask t) {
+        eventListeners.forEach(l -> l.onDownloadPaused(t));
+    }
+
+    private void fireResumed(DownloadTask t) {
+        eventListeners.forEach(l -> l.onDownloadResumed(t));
+    }
+
+    private void fireBlocked(String url, String reason) {
+        LOG.warning("[Download] Blocked: " + reason + " url=" + url);
+        eventListeners.forEach(l -> l.onDownloadBlocked(url, reason));
+    }
 }

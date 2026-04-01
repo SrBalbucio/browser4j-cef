@@ -1,6 +1,9 @@
 package balbucio.browser4j.core.runtime;
 
 import balbucio.browser4j.core.config.BrowserRuntimeConfiguration;
+import balbucio.browser4j.download.api.DownloadManager;
+import balbucio.browser4j.download.api.DownloadManagerImpl;
+import balbucio.browser4j.download.config.DownloadConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.cef.CefApp;
@@ -17,6 +20,7 @@ public class BrowserRuntime {
     private final BrowserRuntimeConfiguration config;
     private boolean initialized = false;
     private CefApp cefApp;
+    private DownloadManager downloadManager;
 
     private BrowserRuntime(BrowserRuntimeConfiguration config) {
         this.config = config;
@@ -100,6 +104,7 @@ public class BrowserRuntime {
         BrowserProcessManager.configureArgs(settings, config);
 
         cefApp = CefApp.getInstance(settings);
+        downloadManager = new DownloadManagerImpl(config.getDownloadConfig());
         initialized = true;
         log.info("BrowserRuntime initialized successfully.");
     }
@@ -108,6 +113,7 @@ public class BrowserRuntime {
         if (instance != null && instance.initialized) {
             log.info("Shutting down BrowserRuntime...");
             CefApp.getInstance().dispose();
+            instance.downloadManager = null;
             instance.initialized = false;
             instance = null;
         }
@@ -125,5 +131,16 @@ public class BrowserRuntime {
             throw new IllegalStateException("BrowserRuntime is not initialized.");
         }
         return instance.config;
+    }
+
+    public static DownloadManager getDownloadManager() {
+        if (instance == null || !instance.initialized || instance.downloadManager == null) {
+            throw new IllegalStateException("BrowserRuntime is not initialized. Call init() first.");
+        }
+        return instance.downloadManager;
+    }
+
+    public static DownloadManagerImpl getDownloadManagerImpl() {
+        return (DownloadManagerImpl) getDownloadManager();
     }
 }

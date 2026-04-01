@@ -47,7 +47,7 @@ public class Browser4jTest extends JFrame {
         this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
         CefBrowserImpl browser = (CefBrowserImpl) CefBrowserImpl.create(BrowserRuntime.getCefApp(), BrowserOptions.builder()
-                        .cacheConfig(CacheConfig.builder().enabled(false).build())
+                        .cacheConfig(CacheConfig.builder().enabled(true).sharedCacheEnabled(true).maxEntries(10000).maxCacheSizeBytes(99999999).build())
                         .initialUrl("https://google.com")
                 .build());
 

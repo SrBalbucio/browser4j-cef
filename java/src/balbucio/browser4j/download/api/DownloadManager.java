@@ -6,9 +6,10 @@ import balbucio.browser4j.download.model.DownloadTask;
 import java.util.List;
 
 /**
- * Public API for managing file downloads triggered by the browser.
+ * Public API for managing file downloads triggered by the browser runtime.
  *
- * <p>Obtain an instance via {@code browser.downloads()}.
+ * <p>Obtain an instance via {@code browser.downloads()}. The returned manager is shared
+ * by all browsers created in the same {@code BrowserRuntime}.
  *
  * <h2>Example</h2>
  * <pre>{@code

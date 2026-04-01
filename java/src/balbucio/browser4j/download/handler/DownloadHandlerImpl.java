@@ -6,10 +6,6 @@ import org.cef.callback.CefBeforeDownloadCallback;
 import org.cef.callback.CefDownloadItem;
 import org.cef.callback.CefDownloadItemCallback;
 import org.cef.handler.CefDownloadHandlerAdapter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * JCEF download handler that bridges Chromium download events to {@link DownloadManager}.
@@ -24,7 +20,7 @@ public class DownloadHandlerImpl extends CefDownloadHandlerAdapter {
     private final String profileId;
 
     /**
-     * @param manager   the shared DownloadManager for this browser instance
+     * @param manager   the shared DownloadManager for the current BrowserRuntime
      * @param profileId the profile this browser belongs to ("global" if none)
      */
     public DownloadHandlerImpl(balbucio.browser4j.download.api.DownloadManagerImpl manager, String profileId) {
@@ -41,6 +37,7 @@ public class DownloadHandlerImpl extends CefDownloadHandlerAdapter {
                 item.getMimeType(),
                 item.getTotalBytes(),
                 profileId,
+                browser.getIdentifier(),
                 item.getId(),
                 callback
         );
@@ -51,6 +48,7 @@ public class DownloadHandlerImpl extends CefDownloadHandlerAdapter {
     public void onDownloadUpdated(CefBrowser browser, CefDownloadItem item,
                                   CefDownloadItemCallback callback) {
         manager.handleDownloadUpdated(
+                browser.getIdentifier(),
                 item.getId(),
                 item.getReceivedBytes(),
                 item.getTotalBytes(),

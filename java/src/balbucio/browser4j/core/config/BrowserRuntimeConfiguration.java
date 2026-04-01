@@ -4,6 +4,8 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+
+import balbucio.browser4j.download.config.DownloadConfig;
 import balbucio.browser4j.observability.BrowserMetric;
 import lombok.Getter;
 
@@ -35,6 +37,7 @@ public class BrowserRuntimeConfiguration {
     private final boolean enableWebRTC;
     private final String webrtcIPHandlingPolicy;
     private final String autoPlayPolicy;
+    private final DownloadConfig downloadConfig;
 
     private BrowserRuntimeConfiguration(Builder builder) {
         this.cachePath = builder.cachePath;
@@ -62,6 +65,7 @@ public class BrowserRuntimeConfiguration {
         this.enableWebRTC = builder.enableWebRTC;
         this.webrtcIPHandlingPolicy = builder.webrtcIPHandlingPolicy;
         this.autoPlayPolicy = builder.autoPlayPolicy;
+        this.downloadConfig = builder.downloadConfig;
     }
 
     public static Builder builder() {
@@ -98,6 +102,12 @@ public class BrowserRuntimeConfiguration {
         private boolean enableWebRTC = true;
         private String webrtcIPHandlingPolicy = "default";
         private String autoPlayPolicy = "no-user-gesture-required";
+        private DownloadConfig downloadConfig;
+
+        public Builder downloadConfig(DownloadConfig downloadConfig) {
+            this.downloadConfig = downloadConfig;
+            return this;
+        }
 
         public Builder disableNativeLoader() {
             this.disableNativeLoader = true;

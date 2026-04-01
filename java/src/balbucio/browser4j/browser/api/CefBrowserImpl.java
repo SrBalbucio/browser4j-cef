@@ -40,7 +40,6 @@ import balbucio.browser4j.cache.api.CacheManagerImpl;
 import balbucio.browser4j.cache.config.CacheConfig;
 import balbucio.browser4j.cache.interception.CacheInterceptor;
 import balbucio.browser4j.download.api.DownloadManager;
-import balbucio.browser4j.download.api.DownloadManagerImpl;
 import balbucio.browser4j.download.config.DownloadConfig;
 import balbucio.browser4j.download.handler.DownloadHandlerImpl;
 import balbucio.browser4j.observability.MetricsTracker;
@@ -155,7 +154,8 @@ public class CefBrowserImpl implements Browser {
                 downloadRoot = Path.of(pe.getProfilePath()).resolve("downloads");
             }
         }
-        this.downloadManager = new DownloadManagerImpl(DownloadConfig.builder().build(), downloadRoot);
+        this.downloadManager = BrowserRuntime.getDownloadManager();
+        BrowserRuntime.getDownloadManagerImpl().registerProfileRoot(profileId, downloadRoot);
         this.mediaModule = new MediaModuleImpl(this, this.jsBridge, this.downloadManager);
 
         // History Setup - Shared with profile dir if possible
@@ -180,7 +180,7 @@ public class CefBrowserImpl implements Browser {
 
         // Life span handler is registered in setupHandlers() — not here — so that
         // onAfterCreated is captured before any other handler can fire.
-        this.cefClient.addDownloadHandler(new DownloadHandlerImpl((DownloadManagerImpl) this.downloadManager, profileId));
+        this.cefClient.addDownloadHandler(new DownloadHandlerImpl(BrowserRuntime.getDownloadManagerImpl(), profileId));
 
         CefRequestContext context = CefRequestContext.getGlobalContext();
         CefCookieManager globalCookieManager = CefCookieManager.getGlobalManager();
